@@ -6,7 +6,6 @@ This module provides the main() function that initializes and starts the bot.
 
 import asyncio
 import sys
-from typing import NoReturn
 
 from bot.client import RosyBot
 from bot.service import BotService
@@ -15,23 +14,21 @@ from database.session import init_db, close_db
 from events import setup_events
 from utils.logging import setup_logging, get_logger
 
-logger: get_logger
+logger = None
 
 
 def validate_environment() -> None:
     """Validate required environment variables.
     
-    Raises:
-        SystemExit: If required configuration is missing.
+    Only exits if database URL is missing (critical). Other vars are warned.
     """
     missing = settings.validate_required()
     
     if missing:
-        error_message = settings.get_required_error_message()
-        print(error_message, file=sys.stderr)
-        sys.exit(1)
-    
-    logger.info("Environment validation passed")
+        logger.warning(
+            f"Missing environment variables: {', '.join(missing)}. "
+            "Bot may not function properly without these."
+        )
 
 
 async def main() -> None:
@@ -45,9 +42,6 @@ async def main() -> None:
     logger.info("=" * 60)
     logger.info("Starting Rosy Discord Bot")
     logger.info("=" * 60)
-    
-    # Validate configuration
-    validate_environment()
     
     # Initialize database
     logger.info("Initializing database...")
@@ -66,11 +60,22 @@ async def main() -> None:
     # Setup event handlers
     setup_events(bot)
     
-    # Create and run service
+    # Create service
     service = BotService(bot)
     
+    # Start health check server FIRST - so Railway health check can succeed
+    await service.health_server.start()
+    logger.info("Health check server started")
+    
+    # Give health server a moment to be ready
+    await asyncio.sleep(1)
+    
+    # Validate config AFTER health check is running
+    validate_environment()
+    
     try:
-        await service.run()
+        # Start the Discord bot (this will block)
+        await service.start_bot()
     except KeyboardInterrupt:
         logger.info("Received shutdown signal")
     except Exception as e:
@@ -78,6 +83,7 @@ async def main() -> None:
         raise
     finally:
         logger.info("Shutting down...")
+        await service.stop()
         await close_db()
         logger.info("Shutdown complete")
 

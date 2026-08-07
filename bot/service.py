@@ -116,13 +116,24 @@ class BotService:
         self._shutdown_event = asyncio.Event()
     
     async def start(self) -> None:
-        """Start the bot and all services."""
+        """Start the bot and all services (health check + Discord bot)."""
         logger.info("Starting Rosy Bot service...")
         
-        # Start health check server
+        # Start health check server FIRST
         await self.health_server.start()
         
-        # Start the bot
+        # Give health server a moment to start
+        await asyncio.sleep(0.5)
+        
+        # Start the Discord bot
+        async with self.bot:
+            await self.bot.start(settings.discord_bot_token)
+    
+    async def start_bot(self) -> None:
+        """Start only the bot (Discord connection). Health check should be started separately."""
+        logger.info("Starting Discord bot...")
+        
+        # Start the Discord bot
         async with self.bot:
             await self.bot.start(settings.discord_bot_token)
     
