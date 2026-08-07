@@ -1,9 +1,6 @@
 [railway]
 version = 2
 
-[build]
-builder = "python"
-
 [deploy]
 healthcheckPath = "/health"
 healthcheckTimeout = 30
