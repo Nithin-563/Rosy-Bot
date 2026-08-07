@@ -168,12 +168,20 @@ rosy-bot/
 
 ### Railway Variables (Add in Dashboard)
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DISCORD_BOT_TOKEN` | Yes | Your Discord bot token |
-| `OPENROUTER_API_KEY` | Yes | Your OpenRouter API key |
-| `DATABASE_URL` | Auto | Railway provides this automatically |
-| `ENCRYPTION_SECRET` | No | Optional - for encrypting stored API keys |
+**Important:** When you add PostgreSQL in Railway, it automatically creates a `DATABASE_URL` environment variable. Use that exact URL - do NOT change it!
+
+| Variable | Required | Where to Get |
+|----------|----------|--------------|
+| `DISCORD_BOT_TOKEN` | Yes | Discord Developer Portal → Your App → Bot → Token |
+| `OPENROUTER_API_KEY` | Yes | [openrouter.ai](https://openrouter.ai/keys) → Create API Key |
+| `DATABASE_URL` | Auto | Railway provides this automatically when you add PostgreSQL plugin |
+| `ENCRYPTION_SECRET` | No | Generate with: `python -c "import secrets; print(secrets.token_hex(32))"` |
+
+**PostgreSQL Setup in Railway:**
+1. In your Railway project → "Add Plugin" → "PostgreSQL"
+2. Railway will automatically create `DATABASE_URL`
+3. Copy that URL and paste it in your Variables section (or it should auto-populate)
+4. The URL looks like: `postgres://user:password@host:port/database`
 
 ### Local Development
 
