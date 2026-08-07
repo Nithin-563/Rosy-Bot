@@ -6,6 +6,7 @@ lifecycle, including startup, shutdown, and health monitoring.
 
 import asyncio
 import json
+import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional
 
@@ -53,26 +54,39 @@ class HealthCheckServer:
         self.bot = bot
         SimpleHealthHandler.bot = bot
         self.server: Optional[HTTPServer] = None
+        self._thread: Optional[threading.Thread] = None
     
-    async def start(self) -> None:
-        """Start the health check server in a thread."""
+    def _run_server(self) -> None:
+        """Run the HTTP server (blocking)."""
+        if self.server:
+            self.server.serve_forever()
+    
+    def start_sync(self) -> None:
+        """Start the health check server in a background thread."""
         import os
         
         # Railway sets PORT env var, default to 8080
         port = int(os.environ.get("PORT", "8080"))
         
+        print(f"[HEALTH] Starting health check server on port {port}")
         logger.info(f"Starting health check server on port {port}")
         
         try:
             self.server = HTTPServer(("0.0.0.0", port), SimpleHealthHandler)
             
             # Run in background thread
-            loop = asyncio.get_event_loop()
-            loop.run_in_executor(None, self.server.serve_forever)
+            self._thread = threading.Thread(target=self._run_server, daemon=True)
+            self._thread.start()
             
+            print(f"[HEALTH] Health check server running on 0.0.0.0:{port}")
             logger.info(f"Health check server running on 0.0.0.0:{port}")
         except Exception as e:
+            print(f"[HEALTH] Failed to start: {e}")
             logger.error(f"Failed to start health check server: {e}")
+    
+    async def start(self) -> None:
+        """Async wrapper for start_sync."""
+        self.start_sync()
     
     async def stop(self) -> None:
         """Stop the health check server."""
