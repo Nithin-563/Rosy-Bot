@@ -114,7 +114,10 @@ class Settings(BaseSettings):
         """Convert DATABASE_URL for asyncpg compatibility (Railway auto-provides)."""
         if not v:
             return "postgresql+asyncpg://postgres:password@localhost:5432/rosy_bot"
-        # Railway provides postgresql://, convert to postgresql+asyncpg://
+        # Handle Railway's postgres:// URLs - asyncpg uses postgresql://
+        if v.startswith("postgres://") and "asyncpg" not in v:
+            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+        # Handle postgresql:// (non-async)
         if v.startswith("postgresql://") and "asyncpg" not in v:
             return v.replace("postgresql://", "postgresql+asyncpg://", 1)
         return v
