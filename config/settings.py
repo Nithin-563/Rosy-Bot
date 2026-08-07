@@ -102,6 +102,17 @@ class Settings(BaseSettings):
         description="Enable/disable health check endpoint",
     )
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def convert_database_url_for_asyncpg(cls, v: str) -> str:
+        """Convert DATABASE_URL for asyncpg compatibility (Railway auto-provides)."""
+        if not v:
+            return "postgresql+asyncpg://postgres:password@localhost:5432/rosy_bot"
+        # Railway provides postgresql://, convert to postgresql+asyncpg://
+        if v.startswith("postgresql://") and "asyncpg" not in v:
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
@@ -126,6 +137,7 @@ class Settings(BaseSettings):
         """Validate all required configuration is present.
         
         Returns a list of missing configuration names.
+        Note: ENCRYPTION_SECRET is optional - a default will be generated.
         """
         missing: list[str] = []
         
@@ -135,8 +147,8 @@ class Settings(BaseSettings):
         if not self.openrouter_api_key:
             missing.append("OPENROUTER_API_KEY")
         
-        if not self.encryption_secret:
-            missing.append("ENCRYPTION_SECRET")
+        # ENCRYPTION_SECRET is optional - will use default if not provided
+        # Only warn if they want to encrypt stored API keys
         
         return missing
 

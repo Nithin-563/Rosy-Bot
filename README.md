@@ -130,24 +130,50 @@ rosy-bot/
 |----------|----------|-------------|
 | `DISCORD_BOT_TOKEN` | Yes | Discord bot token |
 | `OPENROUTER_API_KEY` | Yes | OpenRouter API key |
-| `DATABASE_URL` | Yes | PostgreSQL connection URL |
-| `ENCRYPTION_SECRET` | Yes | 32+ char hex for encrypting API keys |
+| `DATABASE_URL` | Auto | Railway provides automatically |
+| `ENCRYPTION_SECRET` | No | Optional - for encrypting stored API keys |
 | `LOG_LEVEL` | No | Logging level (default: INFO) |
 | `BOT_OWNER_ID` | No | Discord user ID of bot owner |
 
 ## 🚢 Deployment
 
-### Railway
+### Railway (Recommended)
 
-1. Create a new Railway project
-2. Add a PostgreSQL database
-3. Set environment variables in Railway dashboard
-4. Deploy from GitHub
+1. **Fork this repository** to your GitHub account
 
-```bash
-# Railway will automatically detect the Python app
-# Set start command: python main.py
-```
+2. **Create a new Railway project**
+   - Go to [Railway](https://railway.app) and sign in
+   - Click "New Project" → "Deploy from GitHub repo"
+   - Select your forked repository
+
+3. **Add PostgreSQL database**
+   - In your Railway project, click "Add Plugin" → "PostgreSQL"
+   - Railway will automatically set `DATABASE_URL` environment variable
+
+4. **Add environment variables** in Railway Dashboard → Variables:
+   ```
+   DISCORD_BOT_TOKEN = your_discord_bot_token
+   OPENROUTER_API_KEY = your_openrouter_api_key
+   ```
+   (Other variables are optional - Railway auto-detects settings)
+
+5. **Deploy**
+   - Railway will auto-detect Python and build automatically
+   - Click "Deploy" to start
+
+**Railway will automatically:**
+- Detect Python from `pyproject.toml`
+- Install dependencies from `uv.lock`
+- Set up health checks from `railway.json`
+
+### Railway Variables (Add in Dashboard)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DISCORD_BOT_TOKEN` | Yes | Your Discord bot token |
+| `OPENROUTER_API_KEY` | Yes | Your OpenRouter API key |
+| `DATABASE_URL` | Auto | Railway provides this automatically |
+| `ENCRYPTION_SECRET` | No | Optional - for encrypting stored API keys |
 
 ### Local Development
 
