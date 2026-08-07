@@ -111,12 +111,9 @@ class Settings(BaseSettings):
     @field_validator("database_url", mode="before")
     @classmethod
     def convert_database_url_for_asyncpg(cls, v: str) -> str:
-        """Convert DATABASE_URL for asyncpg compatibility."""
+        """Pass DATABASE_URL through as-is for asyncpg."""
         if not v:
             return "postgresql://postgres:password@localhost:5432/rosy_bot"
-        # asyncpg works with postgresql:// URLs
-        if v.startswith("postgres://"):
-            return v.replace("postgres://", "postgresql://", 1)
         return v
 
     @field_validator("log_level")
