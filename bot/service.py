@@ -58,7 +58,10 @@ class HealthCheckServer:
         """Start the health check server in a thread."""
         import os
         
-        port = int(os.environ.get("PORT", settings.health_port))
+        # Railway sets PORT env var, default to 8080
+        port = int(os.environ.get("PORT", "8080"))
+        
+        logger.info(f"Starting health check server on port {port}")
         
         try:
             self.server = HTTPServer(("0.0.0.0", port), SimpleHealthHandler)
@@ -67,7 +70,7 @@ class HealthCheckServer:
             loop = asyncio.get_event_loop()
             loop.run_in_executor(None, self.server.serve_forever)
             
-            logger.info(f"Health check server started on 0.0.0.0:{port}")
+            logger.info(f"Health check server running on 0.0.0.0:{port}")
         except Exception as e:
             logger.error(f"Failed to start health check server: {e}")
     

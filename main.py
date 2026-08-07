@@ -39,19 +39,22 @@ async def main() -> None:
     setup_logging()
     logger = get_logger(__name__)
     
-    logger.info("=" * 60)
+    print("=" * 60)
+    print("Starting Rosy Discord Bot")
+    print("=" * 60)
     logger.info("Starting Rosy Discord Bot")
-    logger.info("=" * 60)
     
     # Initialize database
+    print("Initializing database...")
     logger.info("Initializing database...")
     try:
         await init_db()
+        print("Database initialized successfully")
         logger.info("Database initialized successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
         print(f"\nDatabase connection failed: {e}")
         print("Please check your DATABASE_URL in .env")
+        logger.error(f"Failed to initialize database: {e}")
         sys.exit(1)
     
     # Create bot instance
@@ -64,27 +67,37 @@ async def main() -> None:
     service = BotService(bot)
     
     # Start health check server FIRST - so Railway health check can succeed
+    print("Starting health check server...")
+    logger.info("Starting health check server...")
     await service.health_server.start()
+    print("Health check server started")
     logger.info("Health check server started")
     
-    # Give health server a moment to be ready
-    await asyncio.sleep(1)
+    # Give health server time to be ready
+    await asyncio.sleep(2)
     
     # Validate config AFTER health check is running
     validate_environment()
+    
+    print("Starting Discord bot connection...")
+    logger.info("Starting Discord bot connection...")
     
     try:
         # Start the Discord bot (this will block)
         await service.start_bot()
     except KeyboardInterrupt:
+        print("Received shutdown signal")
         logger.info("Received shutdown signal")
     except Exception as e:
+        print(f"Fatal error: {e}")
         logger.error(f"Fatal error: {e}")
         raise
     finally:
+        print("Shutting down...")
         logger.info("Shutting down...")
         await service.stop()
         await close_db()
+        print("Shutdown complete")
         logger.info("Shutdown complete")
 
 
