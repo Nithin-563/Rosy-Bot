@@ -4,6 +4,7 @@ This module provides async database session handling using SQLAlchemy's
 async support with asyncpg driver for PostgreSQL.
 """
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -25,8 +26,13 @@ engine = create_async_engine(
     settings.database_url,
     echo=settings.log_level == "DEBUG",
     pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=5,
+    max_overflow=10,
+    # Railway requires SSL
+    connect_args={
+        "ssl": "prefer",
+        "server_settings": {"jit": "off"},
+    },
 )
 
 # Create async session factory
@@ -84,6 +90,7 @@ async def init_db() -> None:
     
     This function imports all models to ensure they are registered
     with the Base metadata before creating tables.
+    Includes retry logic for Railway's cold starts.
     """
     from database.models import (  # noqa: F401
         Guild,
@@ -99,10 +106,23 @@ async def init_db() -> None:
         GuildSetting,
     )
     
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    max_retries = 5
+    retry_delay = 3
     
-    logger.info("Database initialized successfully")
+    for attempt in range(max_retries):
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database initialized successfully")
+            return
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Database connection attempt {attempt + 1} failed: {e}. Retrying in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            else:
+                logger.error(f"Database connection failed after {max_retries} attempts")
+                raise
 
 
 async def close_db() -> None:
