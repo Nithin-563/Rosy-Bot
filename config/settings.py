@@ -95,12 +95,18 @@ class Settings(BaseSettings):
     )
     health_port: int = Field(
         default=8080,
-        description="Port for health check server",
+        description="Port for health check server (Railway provides PORT env var)",
     )
     enable_health_check: bool = Field(
         default=True,
         description="Enable/disable health check endpoint",
     )
+
+    @property
+    def port(self) -> int:
+        """Get port from Railway's PORT env var or default."""
+        import os
+        return int(os.environ.get("PORT", self.health_port))
 
     @field_validator("database_url", mode="before")
     @classmethod

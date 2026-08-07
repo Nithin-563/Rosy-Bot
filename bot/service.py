@@ -79,7 +79,7 @@ class HealthCheckServer:
         config = uvicorn.Config(
             self.app,
             host=settings.health_host,
-            port=settings.health_port,
+            port=settings.port,  # Uses Railway's PORT env var
             log_level="info",
         )
         self.server = uvicorn.Server(config)

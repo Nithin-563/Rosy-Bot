@@ -2,6 +2,7 @@
 version = 2
 
 [deploy]
+startCommand = "python main.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
