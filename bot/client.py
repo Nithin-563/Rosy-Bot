@@ -77,6 +77,18 @@ class RosyBot(commands.Bot):
         self._initialized = True
         logger.info("Bot setup_hook complete - ready to connect to Discord")
     
+    async def on_connect(self) -> None:
+        """Called when the bot has successfully connected to Discord."""
+        logger.info("WebSocket connection to Discord established")
+    
+    async def on_disconnect(self) -> None:
+        """Called when the bot disconnects from Discord."""
+        logger.warning("Disconnected from Discord WebSocket")
+    
+    async def on_resumed(self) -> None:
+        """Called when the bot resumes a connection."""
+        logger.info("Resumed Discord connection")
+    
     async def register_slash_commands(self) -> None:
         """Register all slash commands."""
         # Import commands here to avoid circular imports
@@ -201,15 +213,21 @@ class RosyBot(commands.Bot):
         logger.info(
             f"Bot connected as {self.user}",
             user_id=self.user.id if self.user else 0,
+            username=str(self.user) if self.user else "unknown",
             guilds=len(self.guilds),
         )
+        print(f"[DISCORD] Connected as {self.user} (ID: {self.user.id})")
+        print(f"[DISCORD] In {len(self.guilds)} guilds")
         
         # Sync slash commands
         try:
+            print("[DISCORD] Syncing slash commands...")
             await self.tree.sync()
-            logger.info("Slash commands synced")
+            logger.info("Slash commands synced globally")
+            print("[DISCORD] Slash commands synced")
         except Exception as e:
-            logger.error(f"Failed to sync slash commands: {e}")
+            logger.error(f"Failed to sync slash commands: {e}", exc_info=True)
+            print(f"[DISCORD] Failed to sync commands: {e}")
         
         # Set status
         activity = discord.Activity(
@@ -217,6 +235,7 @@ class RosyBot(commands.Bot):
             name="/help for commands",
         )
         await self.change_presence(activity=activity)
+        print("[DISCORD] Bot is now online and ready")
     
     async def on_guild_join(self, guild: discord.Guild) -> None:
         """Handle bot joining a new guild."""

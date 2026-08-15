@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from config import settings
+from database.base import Base
 from utils.logging import get_logger
 
 logger = get_logger(__name__)

@@ -36,6 +36,11 @@ class SimpleHealthHandler(BaseHTTPRequestHandler):
                 response["bot_user"] = None
                 response["guilds"] = 0
             
+            # Include startup status from the health server
+            if hasattr(SimpleHealthHandler, 'health_server_ref') and SimpleHealthHandler.health_server_ref:
+                status = SimpleHealthHandler.health_server_ref.get_status()
+                response["startup"] = status
+            
             self.wfile.write(json.dumps(response).encode())
         else:
             self.send_response(404)
@@ -53,8 +58,24 @@ class HealthCheckServer:
         """Initialize the health check server."""
         self.bot = bot
         SimpleHealthHandler.bot = bot
+        SimpleHealthHandler.health_server_ref = self
         self.server: Optional[HTTPServer] = None
         self._thread: Optional[threading.Thread] = None
+        self._startup_status: dict[str, str] = {
+            "health_server": "starting",
+            "database": "pending",
+            "discord": "pending",
+            "overall": "starting",
+        }
+    
+    def update_status(self, component: str, status: str) -> None:
+        """Update startup status for a component."""
+        self._startup_status[component] = status
+        self._startup_status["overall"] = status if status != "ok" else self._startup_status["overall"]
+    
+    def get_status(self) -> dict:
+        """Get current startup status."""
+        return dict(self._startup_status)
     
     def _run_server(self) -> None:
         """Run the HTTP server (blocking)."""
@@ -93,6 +114,7 @@ class HealthCheckServer:
             if not self._thread.is_alive():
                 raise RuntimeError("Health check server thread failed to start")
             
+            self.update_status("health_server", "ok")
             print(f"[HEALTH] Health check server running on 0.0.0.0:{port}")
             logger.info(f"Health check server running on 0.0.0.0:{port}")
         except Exception as e:

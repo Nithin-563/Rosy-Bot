@@ -111,9 +111,12 @@ class Settings(BaseSettings):
     @field_validator("database_url", mode="before")
     @classmethod
     def convert_database_url_for_asyncpg(cls, v: str) -> str:
-        """Pass DATABASE_URL through as-is for asyncpg."""
+        """Ensure DATABASE_URL uses asyncpg scheme for SQLAlchemy async engine."""
         if not v:
-            return "postgresql://postgres:password@localhost:5432/rosy_bot"
+            return "postgresql+asyncpg://postgres:password@localhost:5432/rosy_bot"
+        v = v.strip()
+        if v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
+            v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
         return v
 
     @field_validator("discord_bot_token", mode="before")

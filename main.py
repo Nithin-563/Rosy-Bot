@@ -69,9 +69,11 @@ async def main() -> None:
         logger.info("Initializing database...")
         try:
             await init_db()
+            service.health_server.update_status("database", "ok")
             print("Database initialized successfully")
             logger.info("Database initialized successfully")
         except Exception as e:
+            service.health_server.update_status("database", f"error: {e}")
             print(f"\nDatabase connection failed: {e}")
             print("Please check your DATABASE_URL in environment variables")
             logger.error(f"Failed to initialize database: {e}")
@@ -98,6 +100,8 @@ async def main() -> None:
         
         # Start the Discord bot (this will block)
         await service.start_bot()
+        service.health_server.update_status("discord", "ok")
+        service.health_server.update_status("overall", "ok")
         
     except KeyboardInterrupt:
         print("\nReceived shutdown signal")
