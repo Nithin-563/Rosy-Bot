@@ -7,6 +7,8 @@ This module provides the main() function that initializes and starts the bot.
 import asyncio
 import sys
 
+import discord
+
 from bot.client import RosyBot
 from bot.service import BotService
 from config import settings
@@ -18,17 +20,21 @@ logger = None
 
 
 def validate_environment() -> None:
-    """Validate required environment variables.
+    """Validate required environment variables and exit if missing."""
+    settings.validate_required_or_exit()
     
-    Only exits if database URL is missing (critical). Other vars are warned.
-    """
-    missing = settings.validate_required()
-    
-    if missing:
-        logger.warning(
-            f"Missing environment variables: {', '.join(missing)}. "
-            "Bot may not function properly without these."
-        )
+    # Validate Discord token format
+    token = settings.discord_bot_token.strip()
+    if not token.startswith(("MT", "NT", "OD", "OT", "Mj", "Mz", "NA", "ND", "NT", "OA", "OD", "OT")):
+        # Discord bot tokens typically start with specific prefixes
+        # Basic sanity check - token should be relatively long
+        if len(token) < 50:
+            print(f"[WARN] Discord bot token looks unusually short ({len(token)} chars).")
+            print("[WARN] Verify DISCORD_BOT_TOKEN is set correctly in Railway Variables.")
+        else:
+            print("[OK] Discord bot token format looks valid.")
+    else:
+        print("[OK] Discord bot token format looks valid.")
 
 
 async def main() -> None:
@@ -81,6 +87,17 @@ async def main() -> None:
     # Validate config after database is ready
     validate_environment()
     
+    # Print startup summary
+    print("=" * 60)
+    print("Startup Summary:")
+    print(f"  Database: {'Connected' if settings.database_url else 'Not configured'}")
+    print(f"  Discord Token: {'Set' if settings.discord_bot_token else 'MISSING'}")
+    print(f"  OpenRouter Key: {'Set' if settings.openrouter_api_key else 'MISSING'}")
+    print(f"  Encryption Secret: {'Set' if settings.encryption_secret else 'Using default (not recommended)'}")
+    print(f"  Health Port: {settings.port}")
+    print("=" * 60)
+    logger.info("Startup configuration validated")
+    
     print("Starting Discord bot connection...")
     logger.info("Starting Discord bot connection...")
     
@@ -90,9 +107,16 @@ async def main() -> None:
     except KeyboardInterrupt:
         print("Received shutdown signal")
         logger.info("Received shutdown signal")
+    except discord.LoginFailure as e:
+        print(f"\n[DISCORD] Login failed: {e}")
+        print("[DISCORD] Check that DISCORD_BOT_TOKEN is valid in Railway Variables.")
+        logger.error(f"Discord login failed: {e}")
+        await service.stop()
+        await close_db()
+        sys.exit(1)
     except Exception as e:
-        print(f"Fatal error: {e}")
-        logger.error(f"Fatal error: {e}")
+        print(f"\n[FATAL] Error starting Discord bot: {e}")
+        logger.error(f"Fatal error starting Discord bot: {e}", exc_info=True)
         raise
     finally:
         print("Shutting down...")

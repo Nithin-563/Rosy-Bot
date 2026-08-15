@@ -144,16 +144,40 @@ class Settings(BaseSettings):
         """
         missing: list[str] = []
         
-        if not self.discord_bot_token:
+        if not self.discord_bot_token or not self.discord_bot_token.strip():
             missing.append("DISCORD_BOT_TOKEN")
         
-        if not self.openrouter_api_key:
+        if not self.openrouter_api_key or not self.openrouter_api_key.strip():
             missing.append("OPENROUTER_API_KEY")
         
         # ENCRYPTION_SECRET is optional - will use default if not provided
         # Only warn if they want to encrypt stored API keys
         
         return missing
+
+    def validate_required_or_exit(self) -> None:
+        """Validate required configuration and exit if missing."""
+        missing = self.validate_required()
+        if missing:
+            lines = [
+                "=" * 60,
+                "Rosy Bot - Missing Required Configuration",
+                "=" * 60,
+                "",
+                "The following environment variables are required but not set:",
+                "",
+            ]
+            for var in missing:
+                lines.append(f"  - {var}")
+            lines.extend([
+                "",
+                "Please set these variables in your Railway dashboard",
+                "or .env file before starting the bot.",
+                "",
+                "See .env.example for reference.",
+                "=" * 60,
+            ])
+            raise SystemExit("\n".join(lines))
 
     def get_required_error_message(self) -> str:
         """Generate a helpful error message for missing configuration."""

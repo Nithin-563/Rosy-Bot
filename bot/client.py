@@ -60,18 +60,22 @@ class RosyBot(commands.Bot):
         if self._initialized:
             return
         
-        logger.info("Setting up bot...")
+        logger.info("Running bot setup_hook...")
         
         # Initialize AI service
+        logger.info("Initializing AI provider...")
         provider = ProviderFactory.get_default()
         await provider.initialize()
         self._ai_service = AIService(provider)
+        logger.info("AI provider initialized")
         
         # Register slash commands
+        logger.info("Registering slash commands...")
         await self.register_slash_commands()
+        logger.info("Slash commands registered")
         
         self._initialized = True
-        logger.info("Bot setup complete")
+        logger.info("Bot setup_hook complete - ready to connect to Discord")
     
     async def register_slash_commands(self) -> None:
         """Register all slash commands."""
