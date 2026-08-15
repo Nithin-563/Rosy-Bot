@@ -23,16 +23,10 @@ def validate_environment() -> None:
     """Validate required environment variables and exit if missing."""
     settings.validate_required_or_exit()
     
-    # Validate Discord token format
     token = settings.discord_bot_token.strip()
-    if not token.startswith(("MT", "NT", "OD", "OT", "Mj", "Mz", "NA", "ND", "NT", "OA", "OD", "OT")):
-        # Discord bot tokens typically start with specific prefixes
-        # Basic sanity check - token should be relatively long
-        if len(token) < 50:
-            print(f"[WARN] Discord bot token looks unusually short ({len(token)} chars).")
-            print("[WARN] Verify DISCORD_BOT_TOKEN is set correctly in Railway Variables.")
-        else:
-            print("[OK] Discord bot token format looks valid.")
+    if len(token) < 50:
+        print(f"[WARN] Discord bot token looks unusually short ({len(token)} chars).")
+        print("[WARN] Verify DISCORD_BOT_TOKEN is set correctly in Railway Variables.")
     else:
         print("[OK] Discord bot token format looks valid.")
 
@@ -59,70 +53,74 @@ async def main() -> None:
     # Create service
     service = BotService(bot)
     
-    # Start health check server FIRST - so Railway health check can succeed immediately
-    print("Starting health check server...")
-    logger.info("Starting health check server...")
-    await service.health_server.start()
-    print("Health check server started")
-    logger.info("Health check server started")
-    
-    # Give health server a moment to bind to the port
-    await asyncio.sleep(1)
-    
-    # Initialize database AFTER health server is up
-    print("Initializing database...")
-    logger.info("Initializing database...")
     try:
-        await init_db()
-        print("Database initialized successfully")
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        print(f"\nDatabase connection failed: {e}")
-        print("Please check your DATABASE_URL in environment variables")
-        logger.error(f"Failed to initialize database: {e}")
-        # Stop health server before exiting
-        await service.health_server.stop()
-        sys.exit(1)
-    
-    # Validate config after database is ready
-    validate_environment()
-    
-    # Print startup summary
-    print("=" * 60)
-    print("Startup Summary:")
-    print(f"  Database: {'Connected' if settings.database_url else 'Not configured'}")
-    print(f"  Discord Token: {'Set' if settings.discord_bot_token else 'MISSING'}")
-    print(f"  OpenRouter Key: {'Set' if settings.openrouter_api_key else 'MISSING'}")
-    print(f"  Encryption Secret: {'Set' if settings.encryption_secret else 'Using default (not recommended)'}")
-    print(f"  Health Port: {settings.port}")
-    print("=" * 60)
-    logger.info("Startup configuration validated")
-    
-    print("Starting Discord bot connection...")
-    logger.info("Starting Discord bot connection...")
-    
-    try:
+        # Start health check server FIRST - so Railway health check can succeed immediately
+        print("Starting health check server...")
+        logger.info("Starting health check server...")
+        await service.health_server.start()
+        print("Health check server started")
+        logger.info("Health check server started")
+        
+        # Give health server a moment to bind to the port
+        await asyncio.sleep(1)
+        
+        # Initialize database AFTER health server is up
+        print("Initializing database...")
+        logger.info("Initializing database...")
+        try:
+            await init_db()
+            print("Database initialized successfully")
+            logger.info("Database initialized successfully")
+        except Exception as e:
+            print(f"\nDatabase connection failed: {e}")
+            print("Please check your DATABASE_URL in environment variables")
+            logger.error(f"Failed to initialize database: {e}")
+            # Stop health server before exiting
+            await service.health_server.stop()
+            sys.exit(1)
+        
+        # Validate config after database is ready
+        validate_environment()
+        
+        # Print startup summary
+        print("=" * 60)
+        print("Startup Summary:")
+        print(f"  Database: {'Connected' if settings.database_url else 'Not configured'}")
+        print(f"  Discord Token: {'Set' if settings.discord_bot_token else 'MISSING'}")
+        print(f"  OpenRouter Key: {'Set' if settings.openrouter_api_key else 'MISSING'}")
+        print(f"  Encryption Secret: {'Set' if settings.encryption_secret else 'Using default (not recommended)'}")
+        print(f"  Health Port: {settings.port}")
+        print("=" * 60)
+        logger.info("Startup configuration validated")
+        
+        print("Starting Discord bot connection...")
+        logger.info("Starting Discord bot connection...")
+        
         # Start the Discord bot (this will block)
         await service.start_bot()
+        
     except KeyboardInterrupt:
-        print("Received shutdown signal")
+        print("\nReceived shutdown signal")
         logger.info("Received shutdown signal")
+    except SystemExit:
+        raise
     except discord.LoginFailure as e:
         print(f"\n[DISCORD] Login failed: {e}")
         print("[DISCORD] Check that DISCORD_BOT_TOKEN is valid in Railway Variables.")
         logger.error(f"Discord login failed: {e}")
-        await service.stop()
-        await close_db()
-        sys.exit(1)
+        raise
     except Exception as e:
-        print(f"\n[FATAL] Error starting Discord bot: {e}")
-        logger.error(f"Fatal error starting Discord bot: {e}", exc_info=True)
+        print(f"\n[FATAL] Error during startup: {e}")
+        logger.error(f"Fatal error during startup: {e}", exc_info=True)
         raise
     finally:
         print("Shutting down...")
         logger.info("Shutting down...")
-        await service.stop()
-        await close_db()
+        try:
+            await service.stop()
+            await close_db()
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
         print("Shutdown complete")
         logger.info("Shutdown complete")
 
@@ -140,6 +138,17 @@ def run() -> None:
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
+    except SystemExit:
+        raise
+    except Exception as e:
+        # Last-resort crash logger so Railway shows the real error
+        print(f"[FATAL] Unhandled error: {e}", flush=True)
+        try:
+            import traceback
+            traceback.print_exc()
+        except Exception:
+            pass
+        sys.exit(1)
 
 
 if __name__ == "__main__":

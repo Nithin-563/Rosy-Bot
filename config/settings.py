@@ -116,6 +116,18 @@ class Settings(BaseSettings):
             return "postgresql://postgres:password@localhost:5432/rosy_bot"
         return v
 
+    @field_validator("discord_bot_token", mode="before")
+    @classmethod
+    def strip_discord_bot_token(cls, v: str) -> str:
+        """Strip whitespace from Discord bot token."""
+        return v.strip() if v else v
+
+    @field_validator("openrouter_api_key", mode="before")
+    @classmethod
+    def strip_openrouter_api_key(cls, v: str) -> str:
+        """Strip whitespace from OpenRouter API key."""
+        return v.strip() if v else v
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
