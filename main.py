@@ -44,19 +44,6 @@ async def main() -> None:
     print("=" * 60)
     logger.info("Starting Rosy Discord Bot")
     
-    # Initialize database
-    print("Initializing database...")
-    logger.info("Initializing database...")
-    try:
-        await init_db()
-        print("Database initialized successfully")
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        print(f"\nDatabase connection failed: {e}")
-        print("Please check your DATABASE_URL in .env")
-        logger.error(f"Failed to initialize database: {e}")
-        sys.exit(1)
-    
     # Create bot instance
     bot = RosyBot()
     
@@ -66,17 +53,32 @@ async def main() -> None:
     # Create service
     service = BotService(bot)
     
-    # Start health check server FIRST - so Railway health check can succeed
+    # Start health check server FIRST - so Railway health check can succeed immediately
     print("Starting health check server...")
     logger.info("Starting health check server...")
     await service.health_server.start()
     print("Health check server started")
     logger.info("Health check server started")
     
-    # Give health server time to be ready
-    await asyncio.sleep(2)
+    # Give health server a moment to bind to the port
+    await asyncio.sleep(1)
     
-    # Validate config AFTER health check is running
+    # Initialize database AFTER health server is up
+    print("Initializing database...")
+    logger.info("Initializing database...")
+    try:
+        await init_db()
+        print("Database initialized successfully")
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        print(f"\nDatabase connection failed: {e}")
+        print("Please check your DATABASE_URL in environment variables")
+        logger.error(f"Failed to initialize database: {e}")
+        # Stop health server before exiting
+        await service.health_server.stop()
+        sys.exit(1)
+    
+    # Validate config after database is ready
     validate_environment()
     
     print("Starting Discord bot connection...")

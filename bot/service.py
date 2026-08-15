@@ -64,6 +64,7 @@ class HealthCheckServer:
     def start_sync(self) -> None:
         """Start the health check server in a background thread."""
         import os
+        import socket
         
         # Railway sets PORT env var, default to 8080
         port = int(os.environ.get("PORT", "8080"))
@@ -72,17 +73,32 @@ class HealthCheckServer:
         logger.info(f"Starting health check server on port {port}")
         
         try:
+            # Check if port is already in use
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)
+                result = s.connect_ex(("0.0.0.0", port))
+                if result == 0:
+                    raise OSError(f"Port {port} is already in use")
+            
             self.server = HTTPServer(("0.0.0.0", port), SimpleHealthHandler)
             
             # Run in background thread
             self._thread = threading.Thread(target=self._run_server, daemon=True)
             self._thread.start()
             
+            # Verify server actually started
+            import time
+            time.sleep(0.1)
+            
+            if not self._thread.is_alive():
+                raise RuntimeError("Health check server thread failed to start")
+            
             print(f"[HEALTH] Health check server running on 0.0.0.0:{port}")
             logger.info(f"Health check server running on 0.0.0.0:{port}")
         except Exception as e:
             print(f"[HEALTH] Failed to start: {e}")
             logger.error(f"Failed to start health check server: {e}")
+            raise RuntimeError(f"Health check server failed to start: {e}") from e
     
     async def start(self) -> None:
         """Async wrapper for start_sync."""
