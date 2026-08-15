@@ -12,23 +12,47 @@ import discord
 from bot.client import RosyBot
 from bot.service import BotService
 from config import settings
-from database.session import init_db, close_db
+from database.session import close_db
 from events import setup_events
 from utils.logging import setup_logging, get_logger
 
 logger = None
 
 
-def validate_environment() -> None:
-    """Validate required environment variables and exit if missing."""
-    settings.validate_required_or_exit()
+async def initialize_database(service: BotService) -> None:
+    """Initialize database with retries in the background.
     
-    token = settings.discord_bot_token.strip()
-    if len(token) < 50:
-        print(f"[WARN] Discord bot token looks unusually short ({len(token)} chars).")
-        print("[WARN] Verify DISCORD_BOT_TOKEN is set correctly in Railway Variables.")
-    else:
-        print("[OK] Discord bot token format looks valid.")
+    This runs after the bot is online so Railway health checks pass
+    and the bot is visible in Discord even if the database is slow to start.
+    """
+    from database.session import init_db
+    
+    max_retries = 10
+    retry_delay = 5
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"[DB] Initializing database (attempt {attempt}/{max_retries})...")
+            logger.info(f"Initializing database (attempt {attempt}/{max_retries})...")
+            await init_db()
+            service.health_server.update_status("database", "ok")
+            print("[DB] Database initialized successfully")
+            logger.info("Database initialized successfully")
+            return
+        except Exception as e:
+            service.health_server.update_status("database", f"error: {e}")
+            print(f"[DB] Attempt {attempt} failed: {e}")
+            logger.error(f"Database initialization attempt {attempt} failed: {e}")
+            
+            if attempt < max_retries:
+                print(f"[DB] Retrying in {retry_delay}s...")
+                logger.info(f"Retrying database connection in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 60)  # Cap at 60s
+            else:
+                print("[DB] All database connection attempts failed!")
+                print("[DB] Bot will continue without database (some features may not work)")
+                logger.error("Database initialization failed after all retries")
 
 
 async def main() -> None:
@@ -44,6 +68,25 @@ async def main() -> None:
     print("=" * 60)
     logger.info("Starting Rosy Discord Bot")
     
+    # Validate required environment variables FIRST
+    missing = []
+    if not settings.discord_bot_token or not settings.discord_bot_token.strip():
+        missing.append("DISCORD_BOT_TOKEN")
+    if not settings.openrouter_api_key or not settings.openrouter_api_key.strip():
+        missing.append("OPENROUTER_API_KEY")
+    
+    if missing:
+        print("=" * 60)
+        print("ERROR: Missing Required Configuration")
+        print("=" * 60)
+        for var in missing:
+            print(f"  - {var}")
+        print()
+        print("Please set these variables in Railway Dashboard → Variables")
+        print("See .env.example for reference.")
+        print("=" * 60)
+        raise SystemExit(1)
+    
     # Create bot instance
     bot = RosyBot()
     
@@ -54,60 +97,39 @@ async def main() -> None:
     service = BotService(bot)
     
     try:
-        # Start health check server FIRST - so Railway health check can succeed immediately
+        # Start health check server FIRST - so Railway health check passes immediately
         print("Starting health check server...")
         logger.info("Starting health check server...")
         await service.health_server.start()
         print("Health check server started")
         logger.info("Health check server started")
         
-        # Give health server a moment to bind to the port
+        # Give health server a moment to bind
         await asyncio.sleep(1)
         
-        # Initialize database AFTER health server is up
-        print("Initializing database...")
-        logger.info("Initializing database...")
-        try:
-            await init_db()
-            service.health_server.update_status("database", "ok")
-            print("Database initialized successfully")
-            logger.info("Database initialized successfully")
-        except Exception as e:
-            service.health_server.update_status("database", f"error: {e}")
-            print(f"\nDatabase connection failed: {e}")
-            print("Please check your DATABASE_URL in environment variables")
-            logger.error(f"Failed to initialize database: {e}")
-            # Stop health server before exiting
-            await service.health_server.stop()
-            sys.exit(1)
-        
-        # Validate config after database is ready
-        validate_environment()
-        
-        # Print startup summary
+        # Print startup config
         print("=" * 60)
-        print("Startup Summary:")
-        print(f"  Database: {'Connected' if settings.database_url else 'Not configured'}")
+        print("Startup Configuration:")
+        print(f"  Database URL: {settings.database_url[:60]}...")
         print(f"  Discord Token: {'Set' if settings.discord_bot_token else 'MISSING'}")
         print(f"  OpenRouter Key: {'Set' if settings.openrouter_api_key else 'MISSING'}")
-        print(f"  Encryption Secret: {'Set' if settings.encryption_secret else 'Using default (not recommended)'}")
         print(f"  Health Port: {settings.port}")
         print("=" * 60)
         logger.info("Startup configuration validated")
         
+        # Start Discord bot FIRST - so it comes online immediately
         print("Starting Discord bot connection...")
         logger.info("Starting Discord bot connection...")
         
+        # Create background task for database initialization
+        db_task = asyncio.create_task(initialize_database(service))
+        
         # Start the Discord bot (this will block)
         await service.start_bot()
-        service.health_server.update_status("discord", "ok")
-        service.health_server.update_status("overall", "ok")
         
     except KeyboardInterrupt:
         print("\nReceived shutdown signal")
         logger.info("Received shutdown signal")
-    except SystemExit:
-        raise
     except discord.LoginFailure as e:
         print(f"\n[DISCORD] Login failed: {e}")
         print("[DISCORD] Check that DISCORD_BOT_TOKEN is valid in Railway Variables.")

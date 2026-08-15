@@ -245,10 +245,13 @@ class RosyBot(commands.Bot):
             guild_name=guild.name,
         )
         
-        # Initialize guild in database
-        async with get_session_context() as session:
-            memory_manager = MemoryManager(session)
-            await memory_manager.get_or_create_guild(guild.id, guild.name)
+        # Initialize guild in database (non-critical, log but don't crash)
+        try:
+            async with get_session_context() as session:
+                memory_manager = MemoryManager(session)
+                await memory_manager.get_or_create_guild(guild.id, guild.name)
+        except Exception as e:
+            logger.warning(f"Failed to initialize guild in database: {e}")
     
     async def on_guild_remove(self, guild: discord.Guild) -> None:
         """Handle bot leaving a guild."""
