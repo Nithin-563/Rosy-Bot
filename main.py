@@ -110,12 +110,27 @@ async def main() -> None:
         # Print startup config
         print("=" * 60)
         print("Startup Configuration:")
-        print(f"  Database URL: {settings.database_url[:60]}...")
+        
+        # Mask password in database URL for logging
+        db_url = settings.database_url
+        if "@" in db_url:
+            parts = db_url.split("@")
+            masked_url = parts[0].split("://")[0] + "://***@" + parts[1]
+            print(f"  Database URL: {masked_url}")
+        else:
+            print(f"  Database URL: {db_url}")
+        
         print(f"  Discord Token: {'Set' if settings.discord_bot_token else 'MISSING'}")
         print(f"  OpenRouter Key: {'Set' if settings.openrouter_api_key else 'MISSING'}")
         print(f"  Health Port: {settings.port}")
         print("=" * 60)
-        logger.info("Startup configuration validated")
+        logger.info(
+            "Startup configuration validated",
+            database_url=masked_url if "@" in db_url else db_url,
+            discord_token_set=bool(settings.discord_bot_token),
+            openrouter_key_set=bool(settings.openrouter_api_key),
+            health_port=settings.port,
+        )
         
         # Start Discord bot FIRST - so it comes online immediately
         print("Starting Discord bot connection...")

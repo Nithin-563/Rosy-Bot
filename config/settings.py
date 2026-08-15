@@ -115,7 +115,9 @@ class Settings(BaseSettings):
         if not v:
             return "postgresql+asyncpg://postgres:password@localhost:5432/rosy_bot"
         v = v.strip()
-        if v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
+        if v.startswith("postgres://") and not v.startswith("postgresql+asyncpg://"):
+            v = v.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
             v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
         return v
 
