@@ -108,17 +108,25 @@ async def init_db() -> None:
     
     for attempt in range(max_retries):
         try:
+            logger.info(f"Creating database tables (attempt {attempt + 1}/{max_retries})...")
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
             logger.info("Database initialized successfully")
             return
         except Exception as e:
+            error_type = type(e).__name__
+            error_msg = str(e)
+            logger.error(
+                f"Database initialization failed (attempt {attempt + 1}/{max_retries}): "
+                f"{error_type}: {error_msg}"
+            )
+            
             if attempt < max_retries - 1:
-                logger.warning(f"Database connection attempt {attempt + 1} failed: {e}. Retrying in {retry_delay}s...")
+                logger.info(f"Retrying in {retry_delay}s...")
                 await asyncio.sleep(retry_delay)
                 retry_delay *= 2  # Exponential backoff
             else:
-                logger.error(f"Database connection failed after {max_retries} attempts")
+                logger.error("Database initialization failed after all retries")
                 raise
 
 

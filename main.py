@@ -30,7 +30,7 @@ async def initialize_database(service: BotService) -> None:
     import traceback
     
     max_retries = 10
-    retry_delay = 5
+    retry_delay = 10  # Start with 10s instead of 5s
     
     for attempt in range(1, max_retries + 1):
         try:
@@ -53,7 +53,7 @@ async def initialize_database(service: BotService) -> None:
                 print(f"[DB] Retrying in {retry_delay}s...")
                 logger.info(f"Retrying database connection in {retry_delay}s...")
                 await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, 60)  # Cap at 60s
+                retry_delay = min(retry_delay * 2, 120)  # Cap at 120s
             else:
                 print("[DB] All database connection attempts failed!")
                 print("[DB] Bot will continue without database (some features may not work)")
@@ -122,6 +122,13 @@ async def main() -> None:
             parts = db_url.split("@")
             masked_url = parts[0].split("://")[0] + "://***@" + parts[1]
             print(f"  Database URL: {masked_url}")
+            
+            # Extract host:port for diagnostics
+            try:
+                host_port = parts[1].split("/")[0]
+                print(f"  Database Host: {host_port}")
+            except Exception:
+                pass
         else:
             print(f"  Database URL: {db_url}")
         
@@ -136,18 +143,6 @@ async def main() -> None:
             openrouter_key_set=bool(settings.openrouter_api_key),
             health_port=settings.port,
         )
-        
-        # Quick DB connectivity test before launching bot
-        print("[DB] Testing database connectivity...")
-        logger.info("Testing database connectivity...")
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(text("SELECT 1"))
-            print("[DB] Database connectivity test passed")
-            logger.info("Database connectivity test passed")
-        except Exception as e:
-            print(f"[DB] Connectivity test failed: {type(e).__name__}: {e}")
-            logger.error(f"Database connectivity test failed: {type(e).__name__}: {e}")
         
         # Start Discord bot FIRST - so it comes online immediately
         print("Starting Discord bot connection...")
