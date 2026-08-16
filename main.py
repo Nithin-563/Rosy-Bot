@@ -8,11 +8,12 @@ import asyncio
 import sys
 
 import discord
+from sqlalchemy import text
 
 from bot.client import RosyBot
 from bot.service import BotService
 from config import settings
-from database.session import close_db
+from database.session import close_db, engine
 from events import setup_events
 from utils.logging import setup_logging, get_logger
 
@@ -26,6 +27,7 @@ async def initialize_database(service: BotService) -> None:
     and the bot is visible in Discord even if the database is slow to start.
     """
     from database.session import init_db
+    import traceback
     
     max_retries = 10
     retry_delay = 5
@@ -41,8 +43,11 @@ async def initialize_database(service: BotService) -> None:
             return
         except Exception as e:
             service.health_server.update_status("database", f"error: {e}")
-            print(f"[DB] Attempt {attempt} failed: {e}")
-            logger.error(f"Database initialization attempt {attempt} failed: {e}")
+            error_type = type(e).__name__
+            error_msg = str(e)
+            print(f"[DB] Attempt {attempt} failed: {error_type}: {error_msg}")
+            logger.error(f"Database initialization attempt {attempt} failed: {error_type}: {error_msg}")
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
             
             if attempt < max_retries:
                 print(f"[DB] Retrying in {retry_delay}s...")
@@ -131,6 +136,18 @@ async def main() -> None:
             openrouter_key_set=bool(settings.openrouter_api_key),
             health_port=settings.port,
         )
+        
+        # Quick DB connectivity test before launching bot
+        print("[DB] Testing database connectivity...")
+        logger.info("Testing database connectivity...")
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("SELECT 1"))
+            print("[DB] Database connectivity test passed")
+            logger.info("Database connectivity test passed")
+        except Exception as e:
+            print(f"[DB] Connectivity test failed: {type(e).__name__}: {e}")
+            logger.error(f"Database connectivity test failed: {type(e).__name__}: {e}")
         
         # Start Discord bot FIRST - so it comes online immediately
         print("Starting Discord bot connection...")
