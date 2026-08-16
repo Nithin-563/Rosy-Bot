@@ -114,6 +114,8 @@ class Settings(BaseSettings):
         """Ensure DATABASE_URL uses asyncpg scheme for SQLAlchemy async engine.
         
         Also supports Railway's standard variable names as fallbacks.
+        Adds SSL mode for Railway's PostgreSQL SSL template.
+        Validates that the URL is not the default localhost.
         """
         if not v:
             v = ""
@@ -136,6 +138,24 @@ class Settings(BaseSettings):
             v = v.replace("postgres://", "postgresql+asyncpg://", 1)
         elif v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
             v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        
+        # Add SSL mode for Railway's PostgreSQL SSL template
+        # Railway's SSL template requires SSL connections
+        if "sslmode" not in v and "ssl=" not in v:
+            if "?" in v:
+                v += "&sslmode=require"
+            else:
+                v += "?sslmode=require"
+        
+        # Validate it's not the default localhost URL in production
+        if "localhost" in v and "postgres:password" in v:
+            import warnings
+            warnings.warn(
+                "DATABASE_URL appears to be the default localhost URL. "
+                "This won't work in production. Please set DATABASE_URL in Railway Variables.",
+                UserWarning,
+                stacklevel=2,
+            )
         
         return v
 
