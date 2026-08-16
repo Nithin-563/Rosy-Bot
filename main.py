@@ -49,6 +49,24 @@ async def initialize_database(service: BotService) -> None:
             logger.error(f"Database initialization attempt {attempt} failed: {error_type}: {error_msg}")
             logger.error(f"Full traceback:\n{traceback.format_exc()}")
             
+            # Provide specific guidance based on error type
+            if "Connection refused" in error_msg or "Errno 111" in error_msg:
+                print("[DB] CONNECTION REFUSED - The database is not accepting connections")
+                print("[DB] For Render: Check Render Dashboard → Database → Settings")
+                print("[DB]   1. Ensure database status is 'Available' (green)")
+                print("[DB]   2. Enable 'Connect from anywhere' or whitelist Railway IPs")
+                print("[DB]   3. Verify the port is 5432 and host is correct")
+                logger.error("Database connection refused - check Render network settings")
+            elif "timeout" in error_msg.lower():
+                print("[DB] TIMEOUT - Database may be slow or network issue")
+                logger.error("Database connection timeout")
+            elif "authentication" in error_msg.lower() or "password authentication failed" in error_msg.lower():
+                print("[DB] AUTH ERROR - Check username/password in DATABASE_URL")
+                logger.error("Database authentication failed")
+            elif "ssl" in error_msg.lower():
+                print("[DB] SSL ERROR - Database requires SSL")
+                logger.error("Database SSL connection failed")
+            
             if attempt < max_retries:
                 print(f"[DB] Retrying in {retry_delay}s...")
                 logger.info(f"Retrying database connection in {retry_delay}s...")

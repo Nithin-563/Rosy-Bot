@@ -23,13 +23,17 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 # Create async engine with connection pooling
+# Render and Railway SSL databases require SSL connections
 engine = create_async_engine(
     settings.database_url,
     echo=settings.log_level == "DEBUG",
     pool_pre_ping=True,
     pool_size=5,
     max_overflow=10,
-    connect_args={"timeout": 30},
+    connect_args={
+        "timeout": 30,
+        "ssl": "require",  # Required for Render and Railway SSL databases
+    },
 )
 
 # Create async session factory
@@ -87,7 +91,7 @@ async def init_db() -> None:
     
     This function imports all models to ensure they are registered
     with the Base metadata before creating tables.
-    Includes retry logic for Railway's cold starts.
+    Includes retry logic for Railway's cold starts and Render connections.
     """
     from database.models import (  # noqa: F401
         Guild,
@@ -120,6 +124,34 @@ async def init_db() -> None:
                 f"Database initialization failed (attempt {attempt + 1}/{max_retries}): "
                 f"{error_type}: {error_msg}"
             )
+            
+            # Provide specific guidance based on error type
+            if "Connection refused" in error_msg or "Errno 111" in error_msg:
+                logger.error(
+                    "CONNECTION REFUSED - The database host is reachable but not accepting connections. "
+                    "For Render: Go to Render Dashboard → Database → Settings → "
+                    "Enable 'Connect from anywhere' or add Railway's IP to allowlist."
+                )
+            elif "timeout" in error_msg.lower():
+                logger.error(
+                    "TIMEOUT - Database may be slow to start or network issue. "
+                    "Check if the database is running and the host/port are correct."
+                )
+            elif "authentication" in error_msg.lower() or "password authentication failed" in error_msg.lower():
+                logger.error(
+                    "AUTH ERROR - Check username/password in DATABASE_URL. "
+                    "Verify credentials match what's shown in Render Dashboard."
+                )
+            elif "ssl" in error_msg.lower():
+                logger.error(
+                    "SSL ERROR - Database requires SSL. "
+                    "Ensure DATABASE_URL includes ?sslmode=require"
+                )
+            elif "does not exist" in error_msg.lower():
+                logger.error(
+                    "DATABASE NOT FOUND - The database name in the URL may be wrong. "
+                    "Check Render Dashboard → Database → Info for the correct database name."
+                )
             
             if attempt < max_retries - 1:
                 logger.info(f"Retrying in {retry_delay}s...")
