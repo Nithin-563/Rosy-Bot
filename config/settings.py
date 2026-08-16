@@ -8,7 +8,7 @@ error messages for missing values.
 import os
 import secrets
 from functools import lru_cache
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -111,14 +111,32 @@ class Settings(BaseSettings):
     @field_validator("database_url", mode="before")
     @classmethod
     def convert_database_url_for_asyncpg(cls, v: str) -> str:
-        """Ensure DATABASE_URL uses asyncpg scheme for SQLAlchemy async engine."""
+        """Ensure DATABASE_URL uses asyncpg scheme for SQLAlchemy async engine.
+        
+        Also supports Railway's standard variable names as fallbacks.
+        """
+        if not v:
+            v = ""
+        
+        v = v.strip()
+        
+        # If empty, check Railway's standard database variable names
+        if not v:
+            for var_name in ["DATABASE_URL", "POSTGRESQL_URL", "POSTGRES_URL", "RAILWAY_DATABASE_URL"]:
+                candidate = os.environ.get(var_name, "").strip()
+                if candidate:
+                    v = candidate
+                    break
+        
         if not v:
             return "postgresql+asyncpg://postgres:password@localhost:5432/rosy_bot"
-        v = v.strip()
+        
+        # Convert to asyncpg scheme if needed
         if v.startswith("postgres://") and not v.startswith("postgresql+asyncpg://"):
             v = v.replace("postgres://", "postgresql+asyncpg://", 1)
         elif v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
             v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        
         return v
 
     @field_validator("discord_bot_token", mode="before")
