@@ -1,29 +1,55 @@
 """Rosy configuration.
 
 All runtime configuration is loaded from environment variables (or a `.env`
-file) via pydantic-settings. Nothing sensitive is hard-coded.
+file). Nothing sensitive is hard-coded.
 """
 
 from __future__ import annotations
 
 import os
 from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
-from pydantic import Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-        case_sensitive=False,
-        env_prefix="ROS_",
-    )
+def _normalize_database_url(url: str) -> str:
+    """Ensure PostgreSQL URLs use SQLAlchemy's asyncpg driver."""
+    if url.startswith("postgresql+asyncpg://"):
+        return url
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return url
+
+
+def _read_env_file(env_file: str | os.PathLike[str] | None) -> dict[str, str]:
+    if env_file is None:
+        return {}
+    path = Path(env_file)
+    if not path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip("'").strip('"')
+    return values
+
+
+class Settings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
 
     # --- Core ---
-    discord_token: str = Field(description="Discord bot token from the Developer Portal.")
+    discord_token: str = Field(
+        default="",
+        description="Discord bot token from the Developer Portal.",
+    )
     app_id: int | None = None
     # Comma separated list of guild ids to register slash commands in (development).
     dev_guild_ids: str = ""
@@ -45,15 +71,31 @@ class Settings(BaseSettings):
         description="SQLAlchemy async database URL.",
     )
 
-    @model_validator(mode="after")
-    def _apply_database_url_fallback(self) -> "Settings":
-        placeholder = "postgresql+asyncpg://rosy:rosy@localhost:5432/rosy"
-        if self.database_url == placeholder:
-            env_url = os.environ.get("DATABASE_URL")
-            if env_url:
-                # Railway's URL is postgres://... not asyncpg; adapt the driver.
-                self.database_url = env_url.replace("postgres://", "postgresql+asyncpg://", 1)
-        return self
+    def __init__(self, _env_file: str | os.PathLike[str] | None = ".env", **data: Any) -> None:
+        env = _read_env_file(_env_file)
+        env.update(os.environ)
+
+        for field_name in type(self).model_fields:
+            if field_name in data:
+                continue
+            env_name = f"ROS_{field_name.upper()}"
+            if env_name in env:
+                data[field_name] = env[env_name]
+
+        if not data.get("discord_token") and env.get("DISCORD_TOKEN"):
+            data["discord_token"] = env["DISCORD_TOKEN"]
+        if not data.get("database_url") and env.get("DATABASE_URL"):
+            data["database_url"] = env["DATABASE_URL"]
+        if not data.get("health_port") and env.get("PORT"):
+            data["health_port"] = env["PORT"]
+
+        if data.get("database_url"):
+            data["database_url"] = _normalize_database_url(str(data["database_url"]))
+
+        super().__init__(**data)
+
+        if not self.discord_token:
+            raise ValueError("Set ROS_DISCORD_TOKEN or DISCORD_TOKEN before starting Rosy.")
 
     # --- Encryption (used for at-rest credential encryption) ---
     # Provide a stable 32-byte base64 key. If empty, a random key is derived

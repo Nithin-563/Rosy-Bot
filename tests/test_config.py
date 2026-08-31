@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
 from rosy.config import Settings
-from rosy.core import encrypt, decrypt, redact, RateLimiter
+from rosy.core import RateLimiter, decrypt, encrypt, redact
 
 
 def test_settings_env_prefix():
@@ -18,6 +16,37 @@ def test_settings_env_prefix():
     assert s.default_model == "custom/model"
     del os.environ["ROS_DISCORD_TOKEN"]
     del os.environ["ROS_DEFAULT_MODEL"]
+
+
+def test_settings_accepts_platform_env_aliases(monkeypatch):
+    monkeypatch.delenv("ROS_DISCORD_TOKEN", raising=False)
+    monkeypatch.delenv("ROS_HEALTH_PORT", raising=False)
+    monkeypatch.setenv("DISCORD_TOKEN", "platform-token")
+    monkeypatch.setenv("PORT", "9000")
+
+    s = Settings(_env_file=None)
+
+    assert s.discord_token == "platform-token"
+    assert s.health_port == 9000
+
+
+def test_settings_normalizes_postgres_database_urls(monkeypatch):
+    monkeypatch.setenv("ROS_DISCORD_TOKEN", "abc")
+    monkeypatch.setenv("ROS_DATABASE_URL", "postgresql://user:pass@host:5432/db")
+
+    s = Settings(_env_file=None)
+
+    assert s.database_url == "postgresql+asyncpg://user:pass@host:5432/db"
+
+
+def test_settings_normalizes_railway_database_url_fallback(monkeypatch):
+    monkeypatch.setenv("ROS_DISCORD_TOKEN", "abc")
+    monkeypatch.delenv("ROS_DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:pass@host:5432/db")
+
+    s = Settings(_env_file=None)
+
+    assert s.database_url == "postgresql+asyncpg://user:pass@host:5432/db"
 
 
 def test_security_roundtrip():
