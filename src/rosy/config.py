@@ -13,6 +13,17 @@ from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _normalize_database_url(url: str) -> str:
+    """Ensure PostgreSQL URLs use SQLAlchemy's asyncpg driver."""
+    if url.startswith("postgresql+asyncpg://"):
+        return url
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return url
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -48,14 +59,19 @@ class Settings(BaseSettings):
         description="SQLAlchemy async database URL.",
     )
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _normalize_configured_database_url(cls, value: str) -> str:
+        return _normalize_database_url(value)
+
     @model_validator(mode="after")
     def _apply_database_url_fallback(self) -> Settings:
         placeholder = "postgresql+asyncpg://rosy:rosy@localhost:5432/rosy"
         if self.database_url == placeholder:
             env_url = os.environ.get("DATABASE_URL")
             if env_url:
-                # Railway's URL is postgres://... not asyncpg; adapt the driver.
-                self.database_url = env_url.replace("postgres://", "postgresql+asyncpg://", 1)
+                # Railway's URL may be postgres:// or postgresql:// without an async driver.
+                self.database_url = _normalize_database_url(env_url)
         return self
 
     # --- Encryption (used for at-rest credential encryption) ---
