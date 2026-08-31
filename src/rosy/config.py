@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     # --- Core ---
     discord_token: str = Field(
-        validation_alias=AliasChoices("ROS_DISCORD_TOKEN", "DISCORD_TOKEN"),
+        default="",
         description="Discord bot token from the Developer Portal.",
     )
     app_id: int | None = None
@@ -65,13 +65,23 @@ class Settings(BaseSettings):
         return _normalize_database_url(value)
 
     @model_validator(mode="after")
-    def _apply_database_url_fallback(self) -> Settings:
+    def _apply_platform_env_fallbacks(self):
+        if not self.discord_token:
+            self.discord_token = os.environ.get("DISCORD_TOKEN", "")
+        if not self.discord_token:
+            raise ValueError("Set ROS_DISCORD_TOKEN or DISCORD_TOKEN before starting Rosy.")
+
         placeholder = "postgresql+asyncpg://rosy:rosy@localhost:5432/rosy"
         if self.database_url == placeholder:
             env_url = os.environ.get("DATABASE_URL")
             if env_url:
                 # Railway's URL may be postgres:// or postgresql:// without an async driver.
-                self.database_url = _normalize_database_url(env_url)
+                self.database_url = env_url
+        self.database_url = _normalize_database_url(self.database_url)
+
+        if self.health_port == 8080 and os.environ.get("PORT"):
+            self.health_port = int(os.environ["PORT"])
+
         return self
 
     # --- Encryption (used for at-rest credential encryption) ---

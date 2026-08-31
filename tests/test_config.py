@@ -30,6 +30,25 @@ def test_settings_accepts_platform_env_aliases(monkeypatch):
     assert s.health_port == 9000
 
 
+def test_settings_normalizes_postgres_database_urls(monkeypatch):
+    monkeypatch.setenv("ROS_DISCORD_TOKEN", "abc")
+    monkeypatch.setenv("ROS_DATABASE_URL", "postgresql://user:pass@host:5432/db")
+
+    s = Settings(_env_file=None)
+
+    assert s.database_url == "postgresql+asyncpg://user:pass@host:5432/db"
+
+
+def test_settings_normalizes_railway_database_url_fallback(monkeypatch):
+    monkeypatch.setenv("ROS_DISCORD_TOKEN", "abc")
+    monkeypatch.delenv("ROS_DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:pass@host:5432/db")
+
+    s = Settings(_env_file=None)
+
+    assert s.database_url == "postgresql+asyncpg://user:pass@host:5432/db"
+
+
 def test_security_roundtrip():
     secret = "sk-or-v1-super-secret-key"
     cipher = encrypt(secret)
