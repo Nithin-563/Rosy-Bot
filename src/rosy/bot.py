@@ -101,8 +101,14 @@ class RosyBot(commands.Bot):
             else:
                 await self.tree.sync()
                 logger.info("Synced %d slash commands globally.", len(list(self.tree.get_commands())))
-        except Exception:  # noqa: BLE001
-            logger.exception("Command sync failed (commands will not appear until a later sync).")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Command sync failed")
+            logger.error(
+                "Slash commands could not be registered: %s. This usually means the bot was "
+                "invited WITHOUT the 'applications.commands' OAuth scope. Re-invite Rosy using an "
+                "invite URL that grants BOTH 'bot' AND 'applications.commands' scopes.",
+                exc,
+            )
 
     async def load_cogs(self) -> None:
         for cog in [

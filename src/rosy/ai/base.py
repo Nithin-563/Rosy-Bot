@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 
 from rosy.core.errors import (
+    AIProviderError,
     ProviderAuthError,
     ProviderRateLimited,
     ProviderUnavailable,
@@ -79,6 +80,13 @@ class Provider(abc.ABC):
             raise ProviderAuthError(f"{self.name} auth error", provider=self.name)
         if resp.status_code >= 500:
             raise ProviderUnavailable(f"{self.name} HTTP {resp.status_code}", provider=self.name)
+        if 400 <= resp.status_code < 500:
+            # e.g. invalid model name / malformed request -> give a clear, loggable error.
+            detail = (resp.text or "")[:200]
+            raise AIProviderError(
+                f"{self.name} rejected the request (HTTP {resp.status_code}): {detail}",
+                provider=self.name,
+            )
         resp.raise_for_status()
 
     async def _post_json(self, url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict:

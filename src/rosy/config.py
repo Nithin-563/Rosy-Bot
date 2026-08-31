@@ -106,7 +106,7 @@ class Settings(BaseSettings):
 
     # --- Default AI provider ---
     default_provider: str = "openrouter"
-    default_model: str = "openrouter/auto"
+    default_model: str = "openai/gpt-4o-mini"
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_referer: str = "https://rosy.bot"

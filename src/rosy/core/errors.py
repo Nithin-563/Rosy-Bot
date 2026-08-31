@@ -62,7 +62,11 @@ def safe_user_message(exc: Exception) -> str:
     if isinstance(exc, ProviderAuthError):
         return "The AI service is not configured correctly. Ask an admin."
     if isinstance(exc, AIProviderError):
-        return "Rosy hit an AI service error. Try again shortly."
+        msg = str(exc)
+        # Show a helpful hint without leaking raw response bodies/secrets.
+        if "400" in msg and "rejected" in msg:
+            return "Rosy's AI model was rejected. Check that the model name is valid, or ask an admin."
+        return "Rosy's AI service returned an error. Try again shortly."
     if isinstance(exc, RateLimitExceeded):
         return "You're sending messages too quickly. Please slow down."
     if isinstance(exc, RosyError):
