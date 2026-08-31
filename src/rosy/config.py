@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,7 +23,10 @@ class Settings(BaseSettings):
     )
 
     # --- Core ---
-    discord_token: str = Field(description="Discord bot token from the Developer Portal.")
+    discord_token: str = Field(
+        validation_alias=AliasChoices("ROS_DISCORD_TOKEN", "DISCORD_TOKEN"),
+        description="Discord bot token from the Developer Portal.",
+    )
     app_id: int | None = None
     # Comma separated list of guild ids to register slash commands in (development).
     dev_guild_ids: str = ""
@@ -46,7 +49,7 @@ class Settings(BaseSettings):
     )
 
     @model_validator(mode="after")
-    def _apply_database_url_fallback(self) -> "Settings":
+    def _apply_database_url_fallback(self) -> Settings:
         placeholder = "postgresql+asyncpg://rosy:rosy@localhost:5432/rosy"
         if self.database_url == placeholder:
             env_url = os.environ.get("DATABASE_URL")
@@ -125,7 +128,7 @@ class Settings(BaseSettings):
     log_json: bool = False
 
     # --- Health / Service ---
-    health_port: int = 8080
+    health_port: int = Field(default=8080, validation_alias=AliasChoices("ROS_HEALTH_PORT", "PORT"))
     health_bind_host: str = "0.0.0.0"
 
     @property
