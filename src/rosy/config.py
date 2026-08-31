@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -58,6 +58,11 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://rosy:rosy@localhost:5432/rosy",
         description="SQLAlchemy async database URL.",
     )
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _normalize_configured_database_url(cls, value: str) -> str:
+        return _normalize_database_url(value)
 
     @model_validator(mode="after")
     def _apply_platform_env_fallbacks(self):
@@ -149,7 +154,7 @@ class Settings(BaseSettings):
     log_json: bool = False
 
     # --- Health / Service ---
-    health_port: int = 8080
+    health_port: int = Field(default=8080, validation_alias=AliasChoices("ROS_HEALTH_PORT", "PORT"))
     health_bind_host: str = "0.0.0.0"
 
     @property
