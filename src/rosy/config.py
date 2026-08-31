@@ -6,9 +6,10 @@ file) via pydantic-settings. Nothing sensitive is hard-coded.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,11 +38,22 @@ class Settings(BaseSettings):
     enable_moderation_intent: bool = True
 
     # --- Database ---
-    # Defaults to PostgreSQL. For local/testing you may use sqlite+aiosqlite.
+    # Prefers ROS_DATABASE_URL, then falls back to Railway's standard
+    # DATABASE_URL, then to the local default.
     database_url: str = Field(
         default="postgresql+asyncpg://rosy:rosy@localhost:5432/rosy",
         description="SQLAlchemy async database URL.",
     )
+
+    @model_validator(mode="after")
+    def _apply_database_url_fallback(self) -> "Settings":
+        placeholder = "postgresql+asyncpg://rosy:rosy@localhost:5432/rosy"
+        if self.database_url == placeholder:
+            env_url = os.environ.get("DATABASE_URL")
+            if env_url:
+                # Railway's URL is postgres://... not asyncpg; adapt the driver.
+                self.database_url = env_url.replace("postgres://", "postgresql+asyncpg://", 1)
+        return self
 
     # --- Encryption (used for at-rest credential encryption) ---
     # Provide a stable 32-byte base64 key. If empty, a random key is derived
