@@ -1,0 +1,16 @@
+# Railway deploy: use Dockerfile, attach a Postgres plugin, add env vars.
+# No extra config needed — but this documents the healthcheck port.
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "python -m rosy.main",
+    "healthcheckPath": "/",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
