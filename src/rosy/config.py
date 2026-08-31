@@ -167,7 +167,7 @@ class Settings(BaseModel):
     log_json: bool = False
 
     # --- Health / Service ---
-    health_port: int = 8080
+    health_port: int = Field(default=8080, validation_alias=AliasChoices("ROS_HEALTH_PORT", "PORT"))
     health_bind_host: str = "0.0.0.0"
 
     @property
