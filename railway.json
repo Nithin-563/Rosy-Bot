@@ -1,5 +1,3 @@
-# Railway deploy: use Dockerfile, attach a Postgres plugin, add env vars.
-# No extra config needed — but this documents the healthcheck port.
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
