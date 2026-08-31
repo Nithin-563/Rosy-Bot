@@ -92,11 +92,13 @@ class CredentialStore:
             except ValueError:
                 logger.warning("Could not decrypt stored credential for guild=%s provider=%s", guild_id, provider)
                 return None
+            env = self._env_credentials(provider)
             return ProviderConfig(
                 provider=provider,
                 api_key=key,
-                base_url=row.base_url or "",
-                model=row.default_model,
+                base_url=row.base_url or env["base_url"],
+                model=row.default_model or env["model"],
+                extra=env["extra"],
             )
 
 

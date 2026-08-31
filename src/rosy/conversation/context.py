@@ -69,6 +69,6 @@ class ContextBuilder:
         messages: list[ChatMessage] = [ChatMessage(role="system", content="\n\n".join(system_parts))]
 
         trimmed = ctx.history[-self.settings.max_context_messages:]
-        for m in reversed(trimmed):
+        for m in trimmed:
             messages.append(m)
         return messages

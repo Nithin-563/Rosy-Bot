@@ -34,3 +34,9 @@ def test_registry_rejects_duplicate():
     reg.register_class(MathTool())
     with pytest.raises(Exception):
         reg.register_class(MathTool())
+@pytest.mark.asyncio
+async def test_tool_registry_default_permission_matches_tools():
+    reg = ToolRegistry()
+    reg.register_class(MathTool())
+    result = await reg.run("math", {"expression": "2+2"})
+    assert "4" in result

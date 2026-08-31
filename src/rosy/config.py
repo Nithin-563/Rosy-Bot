@@ -26,6 +26,8 @@ _ENV_ALIASES = {
     "mistral_api_key": ["MISTRAL_API_KEY"],
     "encryption_key": ["ENCRYPTION_SECRET", "ROS_ENCRYPTION_SECRET"],
     "default_model": ["OPENROUTER_DEFAULT_MODEL", "DEFAULT_MODEL"],
+    "openrouter_free_model": ["OPENROUTER_FREE_MODEL"],
+    "openrouter_auto_model": ["OPENROUTER_AUTO_MODEL"],
     "log_level": ["LOG_LEVEL"],
     "log_json": ["LOG_JSON"],
     "openrouter_title": ["OPENROUTER_SITE_NAME"],
@@ -106,7 +108,11 @@ class Settings(BaseSettings):
 
     # --- Default AI provider ---
     default_provider: str = "openrouter"
-    default_model: str = "openai/gpt-4o-mini"
+    # OpenRouter provides a genuinely free model router. The separate Auto Router
+    # is also free as a routing service, but the model it selects may be paid.
+    default_model: str = "openrouter/free"
+    openrouter_free_model: str = "openrouter/free"
+    openrouter_auto_model: str = "openrouter/auto"
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_referer: str = "https://rosy.bot"

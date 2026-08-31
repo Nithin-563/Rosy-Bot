@@ -34,7 +34,7 @@ class PluginRegistry:
     async def load_all(self, bot) -> None:
         for plugin in self._plugins.values():
             try:
-                await plugin.connect(bot)
+                await plugin.on_load(bot)
             except Exception:
                 logger.exception("Failed to load plugin %s", plugin.name)
 

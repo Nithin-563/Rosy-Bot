@@ -68,7 +68,7 @@ class ConversationEngine:
     ) -> ChatResult:
         memories = []
         try:
-            if self.settings.default_model and self.memory:
+            if getattr(self.settings, "memory_enabled", True) and self.memory:
                 if is_dm and user_id:
                     memories += await self.memory.recall(scope=MemoryScope.dm, guild_id=None, user_id=user_id)
                 if guild_id:
@@ -80,6 +80,7 @@ class ConversationEngine:
 
         mode = Personality.detect_mode(user_text, personality_mode)
         ctx = Context(
+            user_id=user_id,
             guild_id=guild_id,
             channel_id=channel_id,
             is_dm=is_dm,

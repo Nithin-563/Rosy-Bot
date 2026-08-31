@@ -75,16 +75,16 @@ class Provider(abc.ABC):
 
     def _handle_status(self, resp: httpx.Response) -> None:
         if resp.status_code == 429:
-            raise ProviderRateLimited(f"{self.name} rate limited", provider=self.name)
+            raise ProviderRateLimited(f"{self.config.provider} rate limited", provider=self.config.provider)
         if resp.status_code in (401, 403):
-            raise ProviderAuthError(f"{self.name} auth error", provider=self.name)
+            raise ProviderAuthError(f"{self.config.provider} auth error", provider=self.config.provider)
         if resp.status_code >= 500:
-            raise ProviderUnavailable(f"{self.name} HTTP {resp.status_code}", provider=self.name)
+            raise ProviderUnavailable(f"{self.config.provider} HTTP {resp.status_code}", provider=self.config.provider)
         if 400 <= resp.status_code < 500:
             # e.g. invalid model name / malformed request -> give a clear, loggable error.
             detail = (resp.text or "")[:200]
             raise AIProviderError(
-                f"{self.name} rejected the request (HTTP {resp.status_code}): {detail}",
+                f"{self.config.provider} rejected the request (HTTP {resp.status_code}): {detail}",
                 provider=self.name,
             )
         resp.raise_for_status()
@@ -93,14 +93,14 @@ class Provider(abc.ABC):
         try:
             resp = await self.http.post(url, json=payload, headers=headers)
         except httpx.TimeoutException as exc:
-            raise ProviderUnavailable(f"{self.name} timed out", provider=self.name) from exc
+            raise ProviderUnavailable(f"{self.config.provider} timed out", provider=self.config.provider) from exc
         except httpx.HTTPError as exc:
-            raise ProviderUnavailable(f"{self.name} network error", provider=self.name) from exc
-        self._post_status(resp)
+            raise ProviderUnavailable(f"{self.config.provider} network error", provider=self.config.provider) from exc
+        self._handle_status(resp)
         try:
             return resp.json()
         except ValueError as exc:
-            raise ProviderUnavailable(f"{self.name}: non-JSON response", provider=self.name) from exc
+            raise ProviderUnavailable(f"{self.config.provider}: non-JSON response", provider=self.config.provider) from exc
 
 
 class OpenAICompatProvider(Provider):
@@ -143,13 +143,13 @@ class OpenAICompatProvider(Provider):
         try:
             choice = data["choices"][0]
         except (KeyError, IndexError) as exc:
-            raise ProviderUnavailable(f"{self.name}: malformed response", provider=self.name) from exc
+            raise ProviderUnavailable(f"{self.config.provider}: malformed response", provider=self.config.provider) from exc
         message = choice.get("message", {})
         text = message.get("content") or ""
         tool_calls = message.get("tool_calls")
         return ChatResult(
             text=text,
-            provider=self.name,
+            provider=self.config.provider,
             model=self.config.model,
             usage=data.get("usage", {}),
             raw=data,

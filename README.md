@@ -138,3 +138,16 @@ Add a capability without touching the core:
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
+## OpenRouter model routing
+
+Rosy now defaults to OpenRouter's **Free Models Router**:
+
+```env
+ROS_DEFAULT_PROVIDER=openrouter
+ROS_DEFAULT_MODEL=openrouter/free
+ROS_OPENROUTER_FREE_MODEL=openrouter/free
+ROS_OPENROUTER_AUTO_MODEL=openrouter/auto
+ROS_OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+`openrouter/free` is the free-inference router and selects an available free model. `openrouter/auto` is OpenRouter's task-aware Auto Router; the router itself has no routing fee, but it can select a paid model, so it should not be treated as a free-inference setting. Choose `openrouter/auto` explicitly when you want that behavior.
