@@ -1,16 +1,17 @@
 """Rosy configuration.
 
 All runtime configuration is loaded from environment variables (or a `.env`
-file) via pydantic-settings. Nothing sensitive is hard-coded.
+file). Nothing sensitive is hard-coded.
 """
 
 from __future__ import annotations
 
 import os
 from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
-from pydantic import AliasChoices, Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def _normalize_database_url(url: str) -> str:
@@ -24,14 +25,25 @@ def _normalize_database_url(url: str) -> str:
     return url
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-        case_sensitive=False,
-        env_prefix="ROS_",
-    )
+def _read_env_file(env_file: str | os.PathLike[str] | None) -> dict[str, str]:
+    if env_file is None:
+        return {}
+    path = Path(env_file)
+    if not path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip("'").strip('"')
+    return values
+
+
+class Settings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
 
     # --- Core ---
     discord_token: str = Field(
@@ -59,30 +71,31 @@ class Settings(BaseSettings):
         description="SQLAlchemy async database URL.",
     )
 
-    @field_validator("database_url", mode="before")
-    @classmethod
-    def _normalize_configured_database_url(cls, value: str) -> str:
-        return _normalize_database_url(value)
+    def __init__(self, _env_file: str | os.PathLike[str] | None = ".env", **data: Any) -> None:
+        env = _read_env_file(_env_file)
+        env.update(os.environ)
 
-    @model_validator(mode="after")
-    def _apply_platform_env_fallbacks(self):
-        if not self.discord_token:
-            self.discord_token = os.environ.get("DISCORD_TOKEN", "")
+        for field_name in type(self).model_fields:
+            if field_name in data:
+                continue
+            env_name = f"ROS_{field_name.upper()}"
+            if env_name in env:
+                data[field_name] = env[env_name]
+
+        if not data.get("discord_token") and env.get("DISCORD_TOKEN"):
+            data["discord_token"] = env["DISCORD_TOKEN"]
+        if not data.get("database_url") and env.get("DATABASE_URL"):
+            data["database_url"] = env["DATABASE_URL"]
+        if not data.get("health_port") and env.get("PORT"):
+            data["health_port"] = env["PORT"]
+
+        if data.get("database_url"):
+            data["database_url"] = _normalize_database_url(str(data["database_url"]))
+
+        super().__init__(**data)
+
         if not self.discord_token:
             raise ValueError("Set ROS_DISCORD_TOKEN or DISCORD_TOKEN before starting Rosy.")
-
-        placeholder = "postgresql+asyncpg://rosy:rosy@localhost:5432/rosy"
-        if self.database_url == placeholder:
-            env_url = os.environ.get("DATABASE_URL")
-            if env_url:
-                # Railway's URL may be postgres:// or postgresql:// without an async driver.
-                self.database_url = env_url
-        self.database_url = _normalize_database_url(self.database_url)
-
-        if self.health_port == 8080 and os.environ.get("PORT"):
-            self.health_port = int(os.environ["PORT"])
-
-        return self
 
     # --- Encryption (used for at-rest credential encryption) ---
     # Provide a stable 32-byte base64 key. If empty, a random key is derived
