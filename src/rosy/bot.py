@@ -86,6 +86,24 @@ class RosyBot(commands.Bot):
         await self.reminders.start(self.fire_reminder)
         logger.info("Rosy ready to sync commands.")
 
+    async def sync_commands(self) -> None:
+        """Register slash commands with Discord.
+
+        Guilds in dev_guild_ids are synced instantly; otherwise commands are
+        registered globally (global sync can take up to an hour to propagate).
+        """
+        guild_ids = self.settings.guild_ids()
+        try:
+            if guild_ids:
+                for gid in guild_ids:
+                    await self.tree.sync(guild=discord.Object(id=gid))
+                logger.info("Synced %d slash commands to dev guilds %s", len(list(self.tree.get_commands())), guild_ids)
+            else:
+                await self.tree.sync()
+                logger.info("Synced %d slash commands globally.", len(list(self.tree.get_commands())))
+        except Exception:  # noqa: BLE001
+            logger.exception("Command sync failed (commands will not appear until a later sync).")
+
     async def load_cogs(self) -> None:
         for cog in [
             "conversation",
@@ -119,6 +137,9 @@ class RosyBot(commands.Bot):
 
     async def on_ready(self) -> None:
         logger.info("Logged in as %s (%s)", self.user, self.user.id)
+        if not getattr(self, "_synced", False):
+            await self.sync_commands()
+            self._synced = True
 
     async def close(self) -> None:
         await self.reminders.stop()

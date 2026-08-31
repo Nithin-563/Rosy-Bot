@@ -13,6 +13,27 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# Map commonly used (non-prefixed / alternate) environment variable names onto
+# the canonical settings fields, so Rosy works no matter which naming the host
+# uses. Primary ROS_* names still take precedence.
+_ENV_ALIASES = {
+    "discord_token": ["DISCORD_TOKEN", "DISCORD_BOT_TOKEN"],
+    "openrouter_api_key": ["OPENROUTER_API_KEY"],
+    "openai_api_key": ["OPENAI_API_KEY"],
+    "gemini_api_key": ["GEMINI_API_KEY"],
+    "anthropic_api_key": ["ANTHROPIC_API_KEY"],
+    "groq_api_key": ["GROQ_API_KEY"],
+    "mistral_api_key": ["MISTRAL_API_KEY"],
+    "encryption_key": ["ENCRYPTION_SECRET", "ROS_ENCRYPTION_SECRET"],
+    "default_model": ["OPENROUTER_DEFAULT_MODEL", "DEFAULT_MODEL"],
+    "log_level": ["LOG_LEVEL"],
+    "log_json": ["LOG_JSON"],
+    "openrouter_title": ["OPENROUTER_SITE_NAME"],
+    "openrouter_referer": ["OPENROUTER_SITE_URL"],
+    "app_id": ["BOT_OWNER_ID", "APPLICATION_ID", "APP_ID"],
+}
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -21,6 +42,21 @@ class Settings(BaseSettings):
         case_sensitive=False,
         env_prefix="ROS_",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_env_aliases(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        for field, names in _ENV_ALIASES.items():
+            if data.get(field):
+                continue  # canonical ROS_* name already set
+            for name in names:
+                val = os.environ.get(name)
+                if val:
+                    data[field] = val
+                    break
+        return data
 
     # --- Core ---
     discord_token: str = Field(description="Discord bot token from the Developer Portal.")
