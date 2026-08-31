@@ -38,21 +38,27 @@ class Settings(BaseSettings):
     enable_moderation_intent: bool = True
 
     # --- Database ---
-    # Prefers ROS_DATABASE_URL, then falls back to Railway's standard
-    # DATABASE_URL, then to the local default.
+    # Resolution order: explicit ROS_DATABASE_URL -> Railway's DATABASE_URL
+    # -> local SQLite file (so the bot never crashes without a DB).
     database_url: str = Field(
-        default="postgresql+asyncpg://rosy:rosy@localhost:5432/rosy",
-        description="SQLAlchemy async database URL.",
+        default="",
+        description="SQLAlchemy async database URL. Leave empty to auto-resolve.",
     )
 
     @model_validator(mode="after")
     def _apply_database_url_fallback(self) -> "Settings":
-        placeholder = "postgresql+asyncpg://rosy:rosy@localhost:5432/rosy"
-        if self.database_url == placeholder:
-            env_url = os.environ.get("DATABASE_URL")
-            if env_url:
-                # Railway's URL is postgres://... not asyncpg; adapt the driver.
-                self.database_url = env_url.replace("postgres://", "postgresql+asyncpg://", 1)
+        url = self.database_url.strip() or os.environ.get("DATABASE_URL", "").strip()
+        if not url:
+            # No database configured at all: fall back to a local SQLite file so
+            # the bot always starts (Railway without a Postgres plugin).
+            self.database_url = "sqlite+aiosqlite:///./rosy_data.db"
+            return self
+        # Normalise any Postgres URL to the asyncpg driver that async SQLAlchemy needs.
+        for prefix in ("postgres://", "postgresql://", "postgresql+psycopg://", "postgresql+psycopg2://"):
+            if url.startswith(prefix):
+                self.database_url = "postgresql+asyncpg://" + url[len(prefix):]
+                return self
+        self.database_url = url
         return self
 
     # --- Encryption (used for at-rest credential encryption) ---

@@ -29,6 +29,16 @@ from rosy.tools import build_default_registry
 logger = logging.getLogger("rosy.bot")
 
 
+def _redact_db_url(url) -> str:
+    """Hide credentials in a DB URL for safe logging."""
+    s = str(url)
+    if "://" in s and "@" in s:
+        head, _, tail = s.partition("://")
+        creds, _, rest = tail.partition("@")
+        return f"{head}://***@{rest}"
+    return s
+
+
 class RosyBot(commands.Bot):
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -67,7 +77,9 @@ class RosyBot(commands.Bot):
     # ------------------------------------------------------------- lifecycle
 
     async def setup_hook(self) -> None:
+        logger.info("Using database: %s", _redact_db_url(self.db.engine.url))
         await self.db.create_all()
+        logger.info("Database schema ready.")
         await self.ai.start()
         self.tools = build_default_registry(http=self.ai.http, files=None)
         await self.load_cogs()
