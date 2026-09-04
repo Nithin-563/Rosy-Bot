@@ -8,7 +8,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from rosy.config import get_settings
+from rosy.config import get_settings, normalize_database_url
 from rosy.db.models import Base  # noqa: F401 - registers all models
 
 config = context.config
@@ -16,8 +16,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Inject the runtime database URL from Rosy settings (never hard-coded).
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# Inject the runtime database URL from Rosy settings (never hard-coded),
+# normalized to the async dialect so migrations work with Railway's Postgres URL.
+config.set_main_option("sqlalchemy.url", normalize_database_url(get_settings().database_url))
 
 target_metadata = Base.metadata
 

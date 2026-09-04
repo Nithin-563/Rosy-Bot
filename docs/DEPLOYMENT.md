@@ -16,8 +16,10 @@ variables only — nothing is hard-coded.
    - `OPENROUTER_API_KEY` — your OpenRouter key
    - `ENCRYPTION_KEY` — a strong random string
      (`python3 -c "import secrets; print(secrets.token_urlsafe(48))"`)
-   - `DATABASE_URL` — the Railway Postgres connection string, converted to the
-     async form: `postgresql+asyncpg://...`
+   - `DATABASE_URL` — the Railway Postgres connection string. You can paste it
+     **exactly as Railway provides it** (e.g. `postgresql://user:pass@host:5432/rosy`);
+     Rosy auto-normalizes the sync `postgresql://` URL to the async `asyncpg`
+     driver, so you don't need to edit it manually.
    - `LOG_LEVEL=INFO`
 5. Railway builds the `Dockerfile` and runs:
    `alembic upgrade head && python -m rosy.main`

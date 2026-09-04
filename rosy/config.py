@@ -95,3 +95,19 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def normalize_database_url(url: str) -> str:
+    """Force a URL onto an async driver so the bot runs anywhere.
+
+    Railway's Postgres plugin provides a *sync* URL such as
+    ``postgresql://user:pass@host:5432/db``. Our engine is async (asyncpg), so a
+    plain ``postgresql://`` prefix would make SQLAlchemy try to import the
+    ``psycopg2`` sync driver, which is not installed. Rewrite it to the async
+    dialect instead. SQLite URLs pass through unchanged.
+    """
+    url = (url or "").strip()
+    for prefix in ("postgresql://", "postgres://", "postgresql+psycopg2://"):
+        if url.startswith(prefix):
+            return "postgresql+asyncpg://" + url[len(prefix):]
+    return url

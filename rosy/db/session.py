@@ -11,12 +11,12 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from rosy.config import get_settings
+from rosy.config import get_settings, normalize_database_url
 
 
 def build_engine(url: str | None = None, echo: bool | None = None) -> AsyncEngine:
     settings = get_settings()
-    database_url = url or settings.database_url
+    database_url = normalize_database_url(url or settings.database_url)
     kwargs: dict = {"echo": settings.sql_echo if echo is None else echo}
     # Only apply pool sizing to PostgreSQL (SQLite is file/connection based).
     if database_url.startswith("postgresql"):
