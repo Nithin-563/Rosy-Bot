@@ -39,7 +39,7 @@ In your service's **Variables** tab, add:
 | Variable | Value |
 |----------|-------|
 | `DISCORD_TOKEN` | Your bot token (see `docs/DISCORD_SETUP.md`). |
-| `DATABASE_URL` | `$POSTGRES_URL` (Railway can reference the variable, or paste the URL with `+asyncpg` added: `postgresql+asyncpg://…`). |
+| `DATABASE_URL` | `$POSTGRES_URL` (or paste the URL). Rosy auto-converts a plain `postgresql://…` URL to the async `postgresql+asyncpg://…` driver, so either form works. |
 | `ENCRYPTION_KEY` | A 64-char hex key — generate with `python -c "import secrets; print(secrets.token_hex(32))"`. |
 | `OPENROUTER_API_KEY` | Your OpenRouter key. |
 
@@ -48,12 +48,10 @@ Mark `DISCORD_TOKEN`, `ENCRYPTION_KEY` and `OPENROUTER_API_KEY` as **locked**
 
 ### DATABASE_URL note
 
-If you reference `$POSTGRES_URL`, note the driver: Rosy expects an async driver
-(`postgresql+asyncpg://…`). `$POSTGRES_URL` is `postgresql://…`, which
-SQLAlchemy will treat as `psycopg2` (sync) and fail. Either:
-- set `DATABASE_URL = postgresql+asyncpg://${{POSTGRES_URL...}}` style, or
-- simpler: copy the actual `$POSTGRES_URL` value and change the scheme prefix to
-  `postgresql+asyncpg://`.
+Rosy auto-normalises the URL: a plain `postgresql://…` (like the raw
+`$POSTGRES_URL`) is rewritten to `postgresql+asyncpg://…` automatically by
+`rosy/db/url.py`, so you don't need to add the driver yourself. If you prefer,
+you may still set it explicitly as `postgresql+asyncpg://…`.
 
 ## 5. Deploy
 

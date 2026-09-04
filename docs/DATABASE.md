@@ -28,6 +28,14 @@ Guild-scoped tables are keyed by `guild_id`. DM data uses `guild_id = NULL`,
 and memories carry a `scope` column (`dm` / `guild` / `user_guild`). All query
 paths filter by the caller's scope, so no guild can read another's data.
 
+## Snowflake ids (important)
+
+Discord ids are 64-bit snowflakes. All snowflake columns are **BIGINT** on
+PostgreSQL (a 32-bit INTEGER overflows and breaks every query). Migration
+`b2f8c1a4d9e5` converts any columns created as INTEGER to BIGINT. The ORM uses a
+`Snowflake = BigInteger().with_variant(Integer, "sqlite")` type so local SQLite
+tests still get auto-incrementing primary keys.
+
 ## Applying migrations
 
 ```bash
