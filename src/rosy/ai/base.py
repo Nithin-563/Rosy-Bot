@@ -96,7 +96,7 @@ class Provider(abc.ABC):
             raise ProviderUnavailable(f"{self.name} timed out", provider=self.name) from exc
         except httpx.HTTPError as exc:
             raise ProviderUnavailable(f"{self.name} network error", provider=self.name) from exc
-        self._post_status(resp)
+        self._handle_status(resp)
         try:
             return resp.json()
         except ValueError as exc:
