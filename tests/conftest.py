@@ -1,44 +1,22 @@
-"""Shared fixtures. No real API keys required."""
+"""Shared test fixtures — in-memory SQLite, no real API keys required."""
+from __future__ import annotations
 
-import os
-import tempfile
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-import pytest
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-
-# Use a local-disk SQLite file so the network-mounted workspace isn't hit.
-_TEST_DB = os.path.join(tempfile.gettempdir(), "rosy_test.db")
-if os.path.exists(_TEST_DB):
-    os.remove(_TEST_DB)
-
-from rosy.db import encryption  # noqa: E402
-from rosy.db.base import Base  # noqa: E402
-
-# Import all models so they register on Base.metadata.
-from rosy.db import models  # noqa: E402,F401
+from rosy.db.base import Base
+from rosy.db.models import *  # noqa: F401,F403 - register models
 
 
-@pytest.fixture(scope="session")
-def engine():
-    encryption.set_encryption_disabled(True)
-    eng = create_async_engine(f"sqlite+aiosqlite:///{_TEST_DB}")
-    yield eng
-    import asyncio
-
-    asyncio.run(eng.dispose())
-
-
-@pytest.fixture
-async def session_factory(engine):
+@pytest_asyncio.fixture
+async def engine():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield factory
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    yield engine
+    await engine.dispose()
 
 
-@pytest.fixture
-async def session(session_factory):
-    async with session_factory() as s:
-        yield s
+@pytest_asyncio.fixture
+async def sessions(engine):
+    yield async_sessionmaker(engine, expire_on_commit=False)

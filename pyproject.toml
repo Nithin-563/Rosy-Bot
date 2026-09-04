@@ -5,37 +5,54 @@ build-backend = "hatchling.build"
 [project]
 name = "rosy"
 version = "1.0.0"
-description = "Rosy - a production-quality, extensible AI Discord bot"
+description = "Rosy — a modular, production-grade AI Discord bot platform."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Rosy" }]
+authors = [{ name = "Rosy Contributors" }]
+keywords = ["discord", "bot", "ai", "llm", "openrouter", "postgres"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Framework :: AsyncIO",
+    "License :: OSI Approved :: MIT License",
+]
+
 dependencies = [
-    "discord.py>=2.3.2,<3.0",
-    "SQLAlchemy>=2.0.30,<3.0",
+    "discord.py>=2.4.0",
+    "sqlalchemy[asyncio]>=2.0.0",
     "asyncpg>=0.29.0",
+    "aiosqlite>=0.20.0",
     "alembic>=1.13.0",
     "pydantic>=2.7.0",
     "pydantic-settings>=2.3.0",
     "httpx>=0.27.0",
     "cryptography>=42.0.0",
-    "apscheduler>=3.10.4,<4.0",
-    "python-dateutil>=2.9.0",
 ]
 
 [project.optional-dependencies]
+# Optional extras are imported lazily / guarded so core imports never require them.
+voice = ["aiohttp>=3.9.0"]
+music = ["yt-dlp>=2024.0.0"]
+image = ["Pillow>=10.0.0"]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
-    "aiosqlite>=0.20.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
 ]
-
-[project.scripts]
-rosy = "rosy.main:run"
+all = ["rosy[voice,music,image,dev]"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/rosy"]
+packages = ["rosy"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]

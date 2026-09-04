@@ -1,19 +1,22 @@
-"""Configuration tests."""
+"""Config tests."""
+from __future__ import annotations
 
-import pytest
-
-from rosy.config import get_settings, PERSONALITY_MODES
-
-
-def test_default_provider_prefers_openrouter(monkeypatch):
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
-    get_settings.cache_clear()
-    s = get_settings()
-    assert s.default_provider == "openrouter"
-    assert s.default_model == s.openrouter_model
-    get_settings.cache_clear()
+from rosy.config import Settings
 
 
-def test_personality_modes_are_valid():
-    for mode in ("friendly", "casual", "technical", "serious", "professional"):
-        assert mode in PERSONALITY_MODES
+def test_default_provider_is_openrouter():
+    s = Settings(discord_token="x")
+    assert s.default_provider_name == "openrouter"
+    assert s.ai_default_provider == "openrouter"
+
+
+def test_postgres_detection():
+    s = Settings(discord_token="x", database_url="postgresql+asyncpg://u:p@h/db")
+    assert s.is_postgres is True
+    s2 = Settings(discord_token="x", database_url="sqlite+aiosqlite:///./x.db")
+    assert s2.is_postgres is False
+
+
+def test_token_defaults_empty():
+    s = Settings()
+    assert s.discord_token == ""
