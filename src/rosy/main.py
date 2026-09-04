@@ -1,90 +1,58 @@
-"""Rosy entrypoint.
+"""Rosy entry point.
 
-Usage:
-    python -m rosy.main
-
-Starts a lightweight HTTP health server first (so Railway's health check always
-has something to answer), then connects the Discord bot. Any startup failure is
-logged in plain text and the process exits non-zero so Railway retries.
+Run with:  `rosy`  or  `python -m rosy.main`
 """
-
-from __future__ import annotations
 
 import asyncio
 import logging
-import sys
+import os
 
-from rosy.config import get_settings
+from .bot.rosy_bot import RosyBot
+from .config import get_settings
+from .logging_config import setup_logging
 
 logger = logging.getLogger("rosy.main")
 
 
-async def _health_server(host: str, port: int, ready: "asyncio.Event") -> None:
-    """Tiny aiohttp-less health endpoint using asyncio streams."""
-    import asyncio as _a
+async def _run_migrations() -> None:
+    """Apply Alembic migrations on startup (skippable).
 
-    async def handle(reader, writer):
-        if ready.is_set():
-            body = b"ok"
-            status = b"HTTP/1.1 200 OK"
-        else:
-            body = b"starting"
-            status = b"HTTP/1.1 503 Service Unavailable"
-        writer.write(status + b"\r\nContent-Type: text/plain\r\nContent-Length: " +
-                     str(len(body)).encode() + b"\r\n\r\n" + body)
-        await writer.drain()
-        writer.close()
-
-    server = await _a.start_server(handle, host, port)
-    logger.info("Health server listening on %s:%s", host, port)
-    async with server:
-        await server.serve_forever()
-
-
-def main() -> int:
-    settings = get_settings()
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    Runs `alembic upgrade head` against the configured DATABASE_URL. A failure
+    is fatal in production (schema must exist) unless explicitly skipped.
+    """
+    if os.environ.get("ROS_SKIP_MIGRATIONS", "").lower() in ("1", "true", "yes"):
+        logger.info("Skipping database migrations (ROS_SKIP_MIGRATIONS set).")
+        return
+    proc = await asyncio.create_subprocess_exec(
+        "alembic", "upgrade", "head",
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     )
+    rc = await proc.wait()
+    if rc != 0:
+        raise SystemExit(f"Database migrations failed with exit code {rc}.")
 
-    ready = asyncio.Event()
-    health_task = None
 
-    async def _run() -> int:
-        nonlocal health_task
-        from rosy.bot import build_bot
-
-        bot = build_bot(settings)
-        health_task = asyncio.create_task(
-            _health_server(settings.health_bind_host, settings.health_port, ready)
+async def _amain() -> None:
+    settings = get_settings()
+    if not settings.discord_token:
+        raise SystemExit(
+            "DISCORD_TOKEN is not set. Add it to your environment before starting."
         )
-        # Brief pause so the health server is listening before we connect.
-        await asyncio.sleep(0.2)
 
-        # Give the bot access to the health 'ready' event. Command syncing and
-        # the online log live in RosyBot.on_ready (we must NOT override on_ready
-        # here, or slash commands would never be registered).
-        bot.ready_event = ready
+    await _run_migrations()
 
-        try:
-            await bot.start(settings.discord_token)  # blocks while running
-        except Exception as exc:  # noqa: BLE001 - top-level guard
-            logger.error("ROSY STARTUP FAILED: %s", exc)
-            logger.error("Full error: %r", exc)
-            return 1
-        finally:
-            ready.set()
-            if health_task is not None:
-                health_task.cancel()
-            try:
-                await bot.close()
-            except Exception:  # noqa: BLE001
-                pass
-        return 0
+    bot = RosyBot()
+    logger.info("Starting Rosy (provider=%s, model=%s)", settings.default_provider, settings.default_model)
+    try:
+        await bot.start(settings.discord_token)
+    except KeyboardInterrupt:
+        await bot.close()
 
-    return asyncio.run(_run())
+
+def run() -> None:
+    setup_logging()
+    asyncio.run(_amain())
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    run()

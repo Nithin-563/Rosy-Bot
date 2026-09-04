@@ -1,3 +1,1 @@
-from rosy.memory.service import MemoryService
-
-__all__ = ["MemoryService"]
+"""Memory subsystem for Rosy."""

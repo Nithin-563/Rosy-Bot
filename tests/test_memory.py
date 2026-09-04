@@ -1,45 +1,71 @@
-"""Memory isolation tests: DMs, guilds, and users must never leak."""
-
-from __future__ import annotations
+"""Memory service tests, including guild/DM isolation."""
 
 import pytest
 
-from rosy.models import MemoryScope
+from rosy.memory.service import MemoryService
 
 
-async def test_dm_memory_requires_user(memory_service):
-    with pytest.raises(Exception):
-        await memory_service.remember("x", scope=MemoryScope.dm, guild_id=None, user_id=None)
+async def _remember(session_factory, **kw):
+    async with session_factory() as s:
+        svc = MemoryService(s)
+        mem = await svc.remember(**kw)
+        return mem
 
 
-async def test_memory_isolated_between_guilds(memory_service):
-    await memory_service.remember(
-        "guild A secret", scope=MemoryScope.guild, guild_id=111, user_id=None
-    )
-    await memory_service.remember(
-        "guild B secret", scope=MemoryScope.guild, guild_id=222, user_id=None
-    )
-    a = await memory_service.recall(scope=MemoryScope.guild, guild_id=111, user_id=None)
-    b = await memory_service.recall(scope=MemoryScope.guild, guild_id=222, user_id=None)
-    assert len(a) == 1 and a[0].content == "guild A secret"
-    assert len(b) == 1 and b[0].content == "guild B secret"
+@pytest.mark.asyncio
+async def test_remember_and_retrieve(session_factory):
+    async with session_factory() as s:
+        svc = MemoryService(s)
+        await svc.remember(
+            user_id=1, guild_id=10, key="likes", value="coffee",
+            memory_type="preference", importance=0.9,
+        )
+        mem = await svc.get(1, 10, "likes")
+        assert mem is not None
+        assert mem.value == "coffee"
+        assert mem.scope == "user_guild"
 
 
-async def test_user_in_guild_isolated_between_users(memory_service):
-    await memory_service.remember(
-        "alice note", scope=MemoryScope.user_in_guild, guild_id=1, user_id=10
-    )
-    await memory_service.remember(
-        "bob note", scope=MemoryScope.user_in_guild, guild_id=1, user_id=20
-    )
-    alice = await memory_service.recall(scope=MemoryScope.user_in_guild, guild_id=1, user_id=10)
-    bob = await memory_service.recall(scope=MemoryScope.user_in_guild, guild_id=1, user_id=20)
-    assert [m.content for m in alice] == ["alice note"]
-    assert [m.content for m in bob] == ["bob note"]
+@pytest.mark.asyncio
+async def test_guild_isolation(session_factory):
+    async with session_factory() as s:
+        svc = MemoryService(s)
+        await svc.remember(user_id=1, guild_id=10, key="k", value="guild-a")
+        await svc.remember(user_id=1, guild_id=20, key="k", value="guild-b")
+        a = await svc.get(1, 10, "k")
+        b = await svc.get(1, 20, "k")
+        assert a.value == "guild-a"
+        assert b.value == "guild-b"
 
 
-async def test_forget_and_clear(memory_service):
-    await memory_service.remember("tmp", scope=MemoryScope.dm, guild_id=None, user_id=5)
-    assert len(await memory_service.recall(scope=MemoryScope.dm, guild_id=None, user_id=5)) == 1
-    assert await memory_service.forget("tmp", scope=MemoryScope.dm, guild_id=None, user_id=5) is True
-    assert await memory_service.recall(scope=MemoryScope.dm, guild_id=None, user_id=5) == []
+@pytest.mark.asyncio
+async def test_dm_separate_from_guild(session_factory):
+    async with session_factory() as s:
+        svc = MemoryService(s)
+        await svc.remember(user_id=1, guild_id=None, key="k", value="dm")
+        await svc.remember(user_id=1, guild_id=10, key="k", value="guild")
+        dm = await svc.get(1, None, "k")
+        g = await svc.get(1, 10, "k")
+        assert dm.value == "dm"
+        assert g.value == "guild"
+        assert dm.scope == "dm"
+
+
+@pytest.mark.asyncio
+async def test_forget(session_factory):
+    async with session_factory() as s:
+        svc = MemoryService(s)
+        await svc.remember(user_id=1, guild_id=10, key="k", value="v")
+        assert await svc.forget(user_id=1, guild_id=10, key="k") is True
+        assert await svc.forget(user_id=1, guild_id=10, key="k") is False
+
+
+@pytest.mark.asyncio
+async def test_clear(session_factory):
+    async with session_factory() as s:
+        svc = MemoryService(s)
+        await svc.remember(user_id=1, guild_id=10, key="a", value="1")
+        await svc.remember(user_id=1, guild_id=10, key="b", value="2")
+        count = await svc.clear(user_id=1, guild_id=10)
+        assert count >= 2
+        assert await svc.get(1, 10, "a") is None

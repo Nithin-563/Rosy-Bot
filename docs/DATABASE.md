@@ -1,48 +1,55 @@
-# Database & migrations
+# Rosy Database Schema & Migrations
 
-Rosy uses **PostgreSQL** in production via SQLAlchemy 2.x async (asyncpg).
-For local testing without Postgres you can point `DATABASE_URL` at SQLite
-(`sqlite+aiosqlite:///./rosy.db`).
+Rosy uses **PostgreSQL** with **SQLAlchemy 2.x async** and **Alembic**
+migrations. The ORM models live in `src/rosy/db/models.py`; migrations live in
+`alembic/versions/`.
 
-## Schema
-
-Core tables (defined in `src/rosy/models/__init__.py`):
+## Tables
 
 | Table | Purpose |
-|---|---|
-| `guilds`, `users` | Discord servers & users |
-| `guild_settings` | Per-guild AI/personality/autonomous config |
-| `user_preferences` | Per-user timezone, model preference |
-| `provider_credentials` | Encrypted per-guild AI API keys |
-| `memories` | Scoped memories (dm / guild / user_in_guild) |
-| `conversations`, `messages` | Conversation context & trimmed history |
-| `usage` | AI token usage & latency metrics |
-| `reminders` | Persistent scheduled reminders |
-| `moderation_records` | warn/timeout/kick/ban history |
-| `custom_commands` | Server-defined commands |
-| `knowledge` | Optional learned knowledge |
-| `plugin_config` | Per-plugin toggles |
-| `personality_state` | Per-guild adaptive personality |
+|-------|---------|
+| `guilds` | Per-server settings (personality, autonomous replies, AI provider/model). |
+| `users` | Discord users (id, display name, preferences). |
+| `channels` | Channel records and per-channel autonomous-reply flags. |
+| `conversations` / `messages` | Conversation history for context. |
+| `memories` | Scoped memory records (preference/fact/summary…). |
+| `ai_providers` | Per-guild provider credentials (API key stored **encrypted**). |
+| `usage_stats` | Token/request usage metrics. |
+| `reminders` | User reminders (timezone-aware, persist across restarts). |
+| `scheduled_tasks` | Recurring scheduled jobs. |
+| `moderation_records` | Warnings/timeouts/kicks/bans history. |
+| `custom_commands` | Guild-specific commands. |
+| `knowledge` | Knowledge/learning records (future semantic search). |
+| `guild_config` | Generic per-guild key/value settings. |
 
-Every per-guild table carries `guild_id`; authorization is enforced in the
-service layer to keep guilds isolated.
+## Isolation
 
-## Running migrations
+Guild-scoped tables are keyed by `guild_id`. DM data uses `guild_id = NULL`,
+and memories carry a `scope` column (`dm` / `guild` / `user_guild`). All query
+paths filter by the caller's scope, so no guild can read another's data.
+
+## Applying migrations
 
 ```bash
-# From a terminal with the app's environment:
-alembic upgrade head      # apply all migrations
-alembic revision --autogenerate -m "describe change"   # generate a new one
-alembic downgrade base    # roll back
+# From the project root (Python 3.12+ with deps installed):
+alembic upgrade head
 ```
 
-`alembic/env.py` reads the database URL from the `DATABASE_URL` environment
-variable (or `ROS_DATABASE_URL`).
+Rosy also runs `alembic upgrade head` automatically on startup, so a fresh
+deploy to Railway is migrated for you. Set `ROS_SKIP_MIGRATIONS=1` to disable
+that behaviour if you manage migrations separately.
 
-> **First deploy:** the bot also calls `create_all()` on startup, so a fresh
-> host works even before you run `alembic upgrade head`.
+## Creating a new migration
 
-## Backups
+After editing `src/rosy/db/models.py`:
 
-Use your host's Postgres tooling (Railway provides automatic backups for its
-Postgres service).
+```bash
+alembic revision --autogenerate -m "describe change"
+alembic upgrade head
+```
+
+Review the generated file under `alembic/versions/` before committing.
+
+> Autogenerate against the S3-backed workspace filesystem can fail for SQLite
+> (disk I/O). Point `DATABASE_URL` at a local or remote PostgreSQL instance (or
+> a local-disk SQLite path) when generating migrations.

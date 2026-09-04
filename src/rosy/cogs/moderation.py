@@ -1,74 +1,87 @@
-"""Moderation cog. All actions respect Discord's own permission model."""
+"""Moderation commands: warn, timeout, kick, ban, history.
 
-from __future__ import annotations
+Permissions are enforced by Discord's permission system via decorators. Rosy
+never bypasses Discord permissions.
+"""
+
+import datetime
 
 import discord
-from discord import app_commands
 from discord.ext import commands
 
+from ..db import session as db_session
+from ..services.moderation import ModerationService
 
-class Moderation(commands.Cog, name="Moderation"):
+require_mod = commands.has_permissions(manage_messages=True)
+require_admin = commands.has_permissions(ban_members=True)
+
+
+class ModerationCog(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
 
-    def _record(self, guild_id, target, action, reason, actor):
-        return self.bot.moderation.record(
-            guild_id=guild_id,
-            target_user_id=target.id,
-            actor_user_id=actor.id if actor else None,
-            action=action,
-            reason=reason or "",
-        )
+    @commands.command(name="warn")
+    @require_mod
+    async def warn(self, ctx: commands.Context, member: discord.Member, *, reason: str = "No reason given") -> None:
+        async with db_session.get_sessionmaker()() as s:
+            svc = ModerationService(s)
+            await svc.record(
+                guild_id=ctx.guild.id,
+                user_id=member.id,
+                moderator_id=ctx.author.id,
+                action="warn",
+                reason=reason,
+            )
+            count = await svc.warning_count(guild_id=ctx.guild.id, user_id=member.id)
+        await ctx.send(f"⚠️ {member.mention} warned ({count} total). Reason: {reason}")
 
-    @app_commands.command(name="warn", description="Warn a member.")
-    @app_commands.default_permissions(moderate_members=True)
-    async def warn(self, interaction: discord.Interaction, member: discord.Member, reason: str = "") -> None:
-        await self._record(interaction.guild_id, member, "warn", reason, interaction.user)
-        await interaction.response.send_message(
-            f"⚠️ {member.mention} warned" + (f" — {reason}" if reason else ""), ephemeral=False
-        )
-
-    @app_commands.command(name="timeout", description="Timeout a member.")
-    @app_commands.default_permissions(moderate_members=True)
-    async def timeout(self, interaction: discord.Interaction, member: discord.Member, minutes: int = 60, reason: str = "") -> None:
-        if not interaction.guild.me.guild_permissions.moderate_members:
-            await interaction.response.send_message("I lack the moderate_members permission.", ephemeral=True)
+    @commands.command(name="timeout")
+    @require_mod
+    async def timeout(self, ctx: commands.Context, member: discord.Member, minutes: int = 10, *, reason: str = "No reason given") -> None:
+        try:
+            await member.timeout(discord.utils.utcnow() + datetime.timedelta(minutes=minutes), reason=reason)
+        except discord.Forbidden:
+            await ctx.send("I don't have permission to timeout that member.")
             return
-        await member.timeout(duration=minutes * 60, reason=reason)
-        await self._record(interaction.guild_id, member, "timeout", reason or f"{minutes}m", interaction.user)
-        await interaction.response.send_message(f"⏱️ Timed out {member} for {minutes} minutes.")
+        async with db_session.get_sessionmaker()() as s:
+            svc = ModerationService(s)
+            await svc.record(guild_id=ctx.guild.id, user_id=member.id, moderator_id=ctx.author.id, action="timeout", reason=reason)
+        await ctx.send(f"⏱️ {member.mention} timed out for {minutes} min. Reason: {reason}")
 
-    @app_commands.command(name="kick", description="Kick a member.")
-    @app_commands.default_permissions(kick_members=True)
-    async def kick(self, interaction: discord.Interaction, member: discord.Member, reason: str = "") -> None:
-        if not interaction.author.guild_permissions.kick_members:
-            await interaction.response.send_message("You lack permission.", ephemeral=True)
+    @commands.command(name="kick")
+    @require_admin
+    async def kick(self, ctx: commands.Context, member: discord.Member, *, reason: str = "No reason given") -> None:
+        try:
+            await member.kick(reason=reason)
+        except discord.Forbidden:
+            await ctx.send("I don't have permission to kick that member.")
             return
-        await member.kick(reason=reason)
-        await self._record(interaction.guild_id, member, "kick", reason, interaction.user)
-        await interaction.response.send_message(f"Kicked {member}.")
+        async with db_session.get_sessionmaker()() as s:
+            svc = ModerationService(s)
+            await svc.record(guild_id=ctx.guild.id, user_id=member.id, moderator_id=ctx.author.id, action="kick", reason=reason)
+        await ctx.send(f"👢 {member} was kicked. Reason: {reason}")
 
-    @app_commands.command(name="ban", description="Ban a member.")
-    @app_commands.default_permissions(ban_members=True)
-    async def ban(self, interaction: discord.Interaction, member: discord.Member, reason: str = "") -> None:
-        if not interaction.author.guild_permissions.ban_members:
-            await interaction.response.send_message("You lack permission.", ephemeral=True)
+    @commands.command(name="ban")
+    @require_admin
+    async def ban(self, ctx: commands.Context, member: discord.Member, *, reason: str = "No reason given") -> None:
+        try:
+            await member.ban(reason=reason)
+        except discord.Forbidden:
+            await ctx.send("I don't have permission to ban that member.")
             return
-        await member.ban(reason=reason)
-        await self._record(interaction.guild_id, member, "ban", reason, interaction.user)
-        await interaction.response.send_message(f"Banned {member}.")
+        async with db_session.get_sessionmaker()() as s:
+            svc = ModerationService(s)
+            await svc.record(guild_id=ctx.guild.id, user_id=member.id, moderator_id=ctx.author.id, action="ban", reason=reason)
+        await ctx.send(f"🔨 {member} was banned. Reason: {reason}")
 
-    @app_commands.command(name="mod_history", description="Show moderation history for a member.")
-    @app_commands.default_permissions(moderate_members=True)
-    async def history(self, interaction: discord.Interaction, member: discord.Member) -> None:
-        rows = await self.bot.moderation.history(interaction.guild_id, member.id)
-        if not rows:
-            await interaction.response.send_message(f"No moderation history for {member}.", ephemeral=True)
+    @commands.command(name="modhistory")
+    @require_mod
+    async def mod_history(self, ctx: commands.Context, member: discord.Member | None = None) -> None:
+        async with db_session.get_sessionmaker()() as s:
+            svc = ModerationService(s)
+            records = await svc.history(guild_id=ctx.guild.id, user_id=member.id if member else None)
+        if not records:
+            await ctx.send("No moderation records.")
             return
-        lines = [f"- **{r.action}** {r.created_at:%Y-%m-%d %H:%M} — {r.reason or 'no reason'}" for r in rows]
-        embed = discord.Embed(title=f"Moderation history: {member}", description="\n".join(lines))
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-async def setup(bot) -> None:
-    await bot.add_cog(Moderation(bot))
+        lines = [f"{r.created_at:%Y-%m-%d %H:%M} — {r.action} on <@{r.user_id}> by <@{r.moderator_id}>: {r.reason}" for r in records]
+        await ctx.send("\n".join(lines[:20]))

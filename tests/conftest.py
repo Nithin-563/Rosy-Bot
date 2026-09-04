@@ -1,59 +1,44 @@
-"""Shared test fixtures. Uses SQLite (in-memory) so no external DB is needed."""
+"""Shared fixtures. No real API keys required."""
 
-from __future__ import annotations
+import os
+import tempfile
 
 import pytest
-import pytest_asyncio
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-from rosy.core.db import Database
-from rosy.config import Settings
-from rosy.core import init_encryption
-from rosy.memory import MemoryService
-from rosy.settings import GuildSettingsService
-from rosy.moderation import ModerationService
-from rosy.reminders import ReminderService
+# Use a local-disk SQLite file so the network-mounted workspace isn't hit.
+_TEST_DB = os.path.join(tempfile.gettempdir(), "rosy_test.db")
+if os.path.exists(_TEST_DB):
+    os.remove(_TEST_DB)
+
+from rosy.db import encryption  # noqa: E402
+from rosy.db.base import Base  # noqa: E402
+
+# Import all models so they register on Base.metadata.
+from rosy.db import models  # noqa: E402,F401
 
 
-@pytest_asyncio.fixture
-async def db():
-    database = Database("sqlite+aiosqlite:///:memory:")
-    await database.create_all()
-    try:
-        yield database
-    finally:
-        await database.dispose()
+@pytest.fixture(scope="session")
+def engine():
+    encryption.set_encryption_disabled(True)
+    eng = create_async_engine(f"sqlite+aiosqlite:///{_TEST_DB}")
+    yield eng
+    import asyncio
+
+    asyncio.run(eng.dispose())
 
 
 @pytest.fixture
-def settings():
-    return Settings(
-        _env_file=None,
-        discord_token="test-token",
-        database_url="sqlite+aiosqlite:///:memory:",
-        openrouter_api_key="test",
-    )
+async def session_factory(engine):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    yield factory
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 
-@pytest_asyncio.fixture
-async def memory_service(db, settings):
-    return MemoryService(db, settings)
-
-
-@pytest_asyncio.fixture
-async def guild_settings(db):
-    return GuildSettingsService(db)
-
-
-@pytest_asyncio.fixture
-async def moderation(db):
-    return ModerationService(db)
-
-
-@pytest_asyncio.fixture
-async def reminders(db):
-    return ReminderService(db, poll_seconds=0.2)
-
-
-@pytest.fixture(autouse=True)
-def _encryption():
-    init_encryption("test-secret", "test-salt")
+@pytest.fixture
+async def session(session_factory):
+    async with session_factory() as s:
+        yield s

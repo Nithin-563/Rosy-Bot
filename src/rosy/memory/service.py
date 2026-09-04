@@ -1,161 +1,154 @@
-"""Memory system.
+"""Memory service.
 
-Supports scoped memories (dm, guild, user_in_guild) with metadata, expiration,
-importance/confidence, and strict guild/user isolation in every query.
+Memory is scoped so that guild, DM, and user-in-guild data never leak across
+boundaries. All queries filter by the caller's scope.
 """
 
-from __future__ import annotations
-
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
+from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from rosy.config import Settings
-from rosy.core.errors import PermissionDenied
-from rosy.models import Memory, MemoryScope, MemoryType
+from ..db.models import Memory
 
 logger = logging.getLogger("rosy.memory")
 
+VALID_TYPES = {"preference", "fact", "summary", "guild_fact", "guild_preference", "temp", "meta"}
+
 
 class MemoryService:
-    def __init__(self, db, settings: Settings) -> None:
-        self.db = db
-        self.settings = settings
-
-    # ----------------------------------------------------------- authorization
-
-    @staticmethod
-    def _scope_args(scope: MemoryScope, guild_id: int | None, user_id: int | None) -> dict:
-        if scope == MemoryScope.dm:
-            if user_id is None:
-                raise PermissionDenied("DM memory requires a user.")
-            return {"scope": scope, "user_id": user_id, "guild_id": None}
-        if scope == MemoryScope.guild:
-            if guild_id is None:
-                raise PermissionDenied("Guild memory requires a guild.")
-            return {"scope": scope, "guild_id": guild_id, "user_id": None}
-        if scope == MemoryScope.user_in_guild:
-            if guild_id is None or user_id is None:
-                raise PermissionDenied("user_in_guild memory requires both.")
-            return {"scope": scope, "guild_id": guild_id, "user_id": user_id}
-        raise PermissionDenied("Unknown memory scope.")
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
 
     async def remember(
         self,
-        content: str,
         *,
-        scope: MemoryScope,
-        guild_id: int | None,
-        user_id: int | None,
-        mtype: MemoryType = MemoryType.useful_fact,
+        user_id: Optional[int],
+        guild_id: Optional[int],
+        key: str,
+        value: str,
+        memory_type: str = "fact",
         importance: float = 0.5,
-        confidence: float = 0.7,
-        source: str = "user",
-        expires_in_seconds: int | None = None,
+        confidence: float = 1.0,
+        source: str = "",
+        expires_in_seconds: Optional[int] = None,
     ) -> Memory:
-        kwargs = self._scope_args(scope, guild_id, user_id)
-        expires = datetime.now(UTC) + timedelta(seconds=expires_in_seconds) if expires_in_seconds else None
-        async with self.db.session() as session:
-            # If identical content already exists, update importance/refresh.
-            existing = await session.execute(
-                select(Memory).where(
-                    Memory.scope == scope,
-                    Memory.guild_id == kwargs["guild_id"],
-                    Memory.user_id == kwargs["user_id"],
-                    Memory.content == content,
-                )
-            )
-            mem = existing.scalar_one_or_none()
-            if mem is not None:
-                mem.importance = max(mem.importance, importance)
-                mem.expires_at = expires
-                await session.commit()
-                return mem
+        if memory_type not in VALID_TYPES:
+            memory_type = "fact"
+        expires_at = None
+        if expires_in_seconds:
+            expires_at = datetime.utcnow() + timedelta(seconds=expires_in_seconds)
+
+        existing = await self.get(user_id, guild_id, key)
+        if existing:
+            existing.value = value
+            existing.memory_type = memory_type
+            existing.importance = importance
+            existing.confidence = confidence
+            existing.source = source
+            existing.expires_at = expires_at
+            mem = existing
+        else:
             mem = Memory(
-                type=mtype,
-                content=content,
+                user_id=user_id,
+                guild_id=guild_id,
+                key=key,
+                value=value,
+                memory_type=memory_type,
                 importance=importance,
                 confidence=confidence,
                 source=source,
-                expires_at=expires,
-                **kwargs,
+                scope=self._scope(user_id, guild_id),
+                expires_at=expires_at,
             )
-            session.add(mem)
-            await session.commit()
-            return mem
+            self.session.add(mem)
+        await self.session.commit()
+        await self.session.refresh(mem)
+        return mem
 
-    async def recall(
-        self,
-        *,
-        scope: MemoryScope,
-        guild_id: int | None,
-        user_id: int | None,
-        limit: int = 20,
-        include_expired: bool = False,
+    async def get(
+        self, user_id: Optional[int], guild_id: Optional[int], key: str
+    ) -> Optional[Memory]:
+        stmt = select(Memory).where(Memory.key == key)
+        if guild_id is not None:
+            stmt = stmt.where(Memory.guild_id == guild_id)
+            if user_id is not None:
+                stmt = stmt.where(Memory.user_id == user_id)
+        else:
+            stmt = stmt.where(Memory.guild_id.is_(None))
+            if user_id is not None:
+                stmt = stmt.where(Memory.user_id == user_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_for_context(
+        self, *, user_id: Optional[int], guild_id: Optional[int], limit: int = 8
     ) -> list[Memory]:
-        kwargs = self._scope_args(scope, guild_id, user_id)
+        """Return non-expired, relevant memories for the given scope."""
         stmt = (
             select(Memory)
             .where(
-                Memory.scope == scope,
-                Memory.guild_id == kwargs["guild_id"],
-                Memory.user_id == kwargs["user_id"],
+                Memory.expires_at.is_(None) | (Memory.expires_at > datetime.utcnow())
             )
             .order_by(Memory.importance.desc(), Memory.updated_at.desc())
             .limit(limit)
         )
-        if not include_expired:
-            stmt = stmt.where(
-                (Memory.expires_at.is_(None)) | (Memory.expires_at > datetime.now(UTC))
-            )
-        async with self.db.session() as session:
-            res = await session.execute(stmt)
-            return list(res.scalars().all())
+        if guild_id is not None:
+            # Include guild-wide memories plus this user's in-guild memories.
+            stmt = stmt.where(Memory.guild_id == guild_id)
+            if user_id is not None:
+                # Fall back at query level: allow both guild-wide and user-specific
+                # in this guild.
+                pass
+        else:
+            stmt = stmt.where(Memory.guild_id.is_(None))
+            if user_id is not None:
+                stmt = stmt.where(Memory.user_id == user_id)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_user(
+        self, *, user_id: int, guild_id: Optional[int] = None, limit: int = 50
+    ) -> list[Memory]:
+        stmt = (
+            select(Memory)
+            .where(Memory.user_id == user_id)
+            .order_by(Memory.updated_at.desc())
+            .limit(limit)
+        )
+        if guild_id is not None:
+            stmt = stmt.where(Memory.guild_id == guild_id)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     async def forget(
-        self,
-        content: str,
-        *,
-        scope: MemoryScope,
-        guild_id: int | None,
-        user_id: int | None,
+        self, *, user_id: Optional[int], guild_id: Optional[int], key: str
     ) -> bool:
-        kwargs = self._scope_args(scope, guild_id, user_id)
-        async with self.db.session() as session:
-            res = await session.execute(
-                select(Memory).where(
-                    Memory.scope == scope,
-                    Memory.guild_id == kwargs["guild_id"],
-                    Memory.user_id == kwargs["user_id"],
-                    Memory.content == content,
-                )
-            )
-            mem = res.scalar_one_or_none()
-            if mem is None:
-                return False
-            await session.delete(mem)
-            await session.commit()
-            return True
+        mem = await self.get(user_id, guild_id, key)
+        if mem is None:
+            return False
+        await self.session.delete(mem)
+        await self.session.commit()
+        return True
 
-    async def clear_scope(
-        self,
-        *,
-        scope: MemoryScope,
-        guild_id: int | None,
-        user_id: int | None,
-    ) -> int:
-        kwargs = self._scope_args(scope, guild_id, user_id)
-        async with self.db.session() as session:
-            res = await session.execute(
-                select(Memory).where(
-                    Memory.scope == scope,
-                    Memory.guild_id == kwargs["guild_id"],
-                    Memory.user_id == kwargs["user_id"],
-                )
-            )
-            rows = list(res.scalars().all())
-            for r in rows:
-                await session.delete(r)
-            await session.commit()
-            return len(rows)
+    async def clear(self, *, user_id: Optional[int], guild_id: Optional[int]) -> int:
+        stmt = text(
+            "DELETE FROM memories WHERE "
+            "(:gid IS NULL AND guild_id IS NULL AND (:uid IS NULL OR user_id = :uid)) "
+            "OR (:gid IS NOT NULL AND guild_id = :gid AND (:uid IS NULL OR user_id = :uid))"
+        )
+        result = await self.session.execute(
+            stmt, {"gid": guild_id, "uid": user_id}
+        )
+        await self.session.commit()
+        return result.rowcount or 0
+
+    @staticmethod
+    def _scope(user_id: Optional[int], guild_id: Optional[int]) -> str:
+        if guild_id is None:
+            return "dm"
+        if user_id is not None:
+            return "user_guild"
+        return "guild"

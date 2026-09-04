@@ -1,75 +1,119 @@
-"""Reminder commands (timezone-aware, persisted in PostgreSQL)."""
+"""Reminder commands and the background scheduler.
 
-from __future__ import annotations
+Reminders persist in PostgreSQL so they survive restarts. A polling loop
+dispatches due reminders through the Discord client.
+"""
 
-import re
-from datetime import UTC, datetime, timedelta
+import asyncio
+import logging
+from datetime import datetime, timedelta, timezone
 
 import discord
-from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
-_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+from ..db import session as db_session
+from ..services.reminders import ReminderService
 
+logger = logging.getLogger("rosy.reminders")
 
-def parse_delta(text: str) -> timedelta | None:
-    """Parse strings like '30m', '2h', '1d', '90 seconds'."""
-    text = text.strip().lower()
-    m = re.match(r"^(\d+)\s*(s|m|h|d|w)?$", text)
-    if m:
-        num = int(m.group(1))
-        unit = m.group(2) or "m"
-        return timedelta(seconds=num * _UNIT_SECONDS[unit])
-    if text in ("tomorrow", "tomorrow at noon"):
-        return timedelta(days=1)
-    return None
+_PARSE = {
+    "s": 1,
+    "m": 60,
+    "h": 3600,
+    "d": 86400,
+}
 
 
-class Reminders(commands.Cog, name="Reminders"):
+def _parse_delta(text: str):
+    """Parse '30m', '2h', '1d30m' etc into a timedelta."""
+    total = 0.0
+    num = ""
+    for ch in text:
+        if ch.isdigit():
+            num += ch
+        elif ch in _PARSE and num:
+            total += int(num) * _PARSE[ch]
+            num = ""
+        elif ch.isalpha() or ch == " ":
+            num = ""
+    if not total:
+        raise ValueError(f"Could not parse duration: {text}")
+    return timedelta(seconds=int(total))
+
+
+class ReminderCog(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
+        self._runner = asyncio.create_task(self._poll_loop())
 
-    @app_commands.command(name="remind", description="Set a reminder (e.g. '30m', '2h', 'tomorrow').")
-    async def remind(self, interaction: discord.Interaction, duration: str, message: str) -> None:
-        delta = parse_delta(duration)
-        if delta is None:
-            await interaction.response.send_message(
-                "I couldn't parse that duration. Use e.g. `30m`, `2h`, `1d`, `tomorrow`.", ephemeral=True
+    def cog_unload(self) -> None:
+        self._runner.cancel()
+
+    def _guild_id(self, ctx):
+        return ctx.guild.id if ctx.guild else None
+
+    @commands.command(name="remindme")
+    async def remindme(self, ctx: commands.Context, duration: str, *, text: str) -> None:
+        """!remindme <duration> <message> — e.g. !remindme 30m take a break."""
+        try:
+            delta = _parse_delta(duration)
+        except ValueError:
+            await ctx.send("Usage: `!remindme 30m <message>`. Use s/m/h/d units.")
+            return
+        remind_at = datetime.now(timezone.utc) + delta
+        async with db_session.get_sessionmaker()() as s:
+            svc = ReminderService(s)
+            rem = await svc.create(
+                guild_id=self._guild_id(ctx),
+                user_id=ctx.author.id,
+                channel_id=ctx.channel.id,
+                text=text,
+                remind_at=remind_at,
             )
+        await ctx.send(f"⏰ I'll remind you in **{duration}**: \"{text}\" (id {rem.id}).")
+
+    @commands.command(name="myreminders")
+    async def my_reminders(self, ctx: commands.Context) -> None:
+        async with db_session.get_sessionmaker()() as s:
+            svc = ReminderService(s)
+            rems = await svc.list_for_user(ctx.author.id)
+        if not rems:
+            await ctx.send("You have no pending reminders.")
             return
-        fire_at = datetime.now(UTC) + delta
-        r = await self.bot.reminders.add(
-            channel_id=interaction.channel_id,
-            user_id=interaction.user.id,
-            message=message,
-            fire_at=fire_at,
-            guild_id=interaction.guild_id,
-        )
-        await interaction.response.send_message(
-            f"✅ Reminder #{r.id} set for <t:{int(fire_at.timestamp())}:R>."
-        )
+        lines = [f"`{r.id}` — {r.remind_at:%Y-%m-%d %H:%M %Z}: {r.text}" for r in rems]
+        await ctx.send("\n".join(lines[:20]))
 
-    @app_commands.command(name="reminders", description="List your pending reminders.")
-    async def list_reminders(self, interaction: discord.Interaction) -> None:
-        rows = await self.bot.reminders.list_for_user(interaction.user.id)
-        if not rows:
-            await interaction.response.send_message("You have no pending reminders.", ephemeral=True)
-            return
-        lines = [
-            f"`#{r.id}` {r.fire_at:%Y-%m-%d %H:%M} — {r.message[:60]}" for r in rows if not r.fired
-        ]
-        await interaction.response.send_message(
-            embed=discord.Embed(title="Your reminders", description="\n".join(lines) or "none pending"),
-            ephemeral=True,
-        )
+    @commands.command(name="cancelreminder")
+    async def cancel_reminder(self, ctx: commands.Context, reminder_id: int) -> None:
+        async with db_session.get_sessionmaker()() as s:
+            svc = ReminderService(s)
+            ok = await svc.cancel(reminder_id, ctx.author.id)
+        await ctx.send("Reminder cancelled." if ok else "Reminder not found or not yours.")
 
-    @app_commands.command(name="cancel_reminder", description="Cancel one of your reminders by id.")
-    async def cancel(self, interaction: discord.Interaction, reminder_id: int) -> None:
-        ok = await self.bot.reminders.cancel(reminder_id, interaction.user.id)
-        await interaction.response.send_message(
-            "Reminder cancelled." if ok else "Couldn't find that reminder.", ephemeral=True
-        )
+    # ---- scheduler loop ------------------------------------------------------
+    async def _poll_loop(self) -> None:
+        await self.bot.wait_until_ready()
+        while True:
+            try:
+                await self._dispatch_due()
+            except asyncio.CancelledError:
+                break
+            except Exception:  # noqa: BLE001
+                logger.exception("Reminder poll error")
+            await asyncio.sleep(20)
 
-
-async def setup(bot) -> None:
-    await bot.add_cog(Reminders(bot))
+    async def _dispatch_due(self) -> None:
+        async with db_session.get_sessionmaker()() as s:
+            svc = ReminderService(s)
+            due = await svc.due()
+            for rem in due:
+                channel = self.bot.get_channel(rem.channel_id)
+                if channel is not None:
+                    try:
+                        await channel.send(f"<@{rem.user_id}> ⏰ **Reminder:** {rem.text}")
+                    except Exception:  # noqa: BLE001
+                        logger.warning("Could not send reminder %s", rem.id)
+                if rem.recurring_cron:
+                    await svc.reschedule_next(rem)
+                else:
+                    await svc.mark_fired(rem.id)

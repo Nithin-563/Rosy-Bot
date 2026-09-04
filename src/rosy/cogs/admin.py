@@ -1,72 +1,74 @@
-"""Admin cog: per-guild configuration through Discord (requires manage_guild)."""
+"""Admin commands: per-guild configuration through Discord.
 
-from __future__ import annotations
+All commands here require the ``manage_guild`` permission. Configuration is
+server-specific and isolated per guild.
+"""
 
 import discord
-from discord import app_commands
 from discord.ext import commands
 
-from rosy.conversation.personality import PERSONALITIES
+from ..config import PERSONALITY_MODES
+from ..db import session as db_session
+from ..db.models import Guild
 
 
-def admin_only():
-    return app_commands.default_permissions(manage_guild=True)
+def is_admin():
+    return commands.has_permissions(manage_guild=True)
 
 
-class Admin(commands.Cog, name="Admin"):
+class AdminCog(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="config", description="Show Rose's configuration for this server.")
-    @app_commands.default_permissions(manage_guild=True)
-    async def config(self, interaction: discord.Interaction) -> None:
-        gs = await self.bot.guild_settings.get_settings(interaction.guild_id)
-        embed = discord.Embed(title="Server configuration", color=discord.Color.blurple())
-        embed.add_field(name="AI provider", value=gs.ai_provider or "default")
-        embed.add_field(name="AI model", value=gs.ai_model or "default")
-        embed.add_field(name="Personality", value=gs.personality_mode)
-        embed.add_field(name="Autonomous replies", value="on" if gs.autonomous_enabled else "off")
-        embed.add_field(name="Memory", value="on" if gs.memory_enabled else "off")
-        embed.add_field(name="Prefix", value=gs.prefix or "none")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+    async def _guild_row(self, guild_id: int):
+        async with db_session.get_sessionmaker()() as s:
+            g = await s.get(Guild, guild_id)
+            if g is None:
+                g = Guild(id=guild_id, personality=self.bot.settings.ros_personality)
+                s.add(g)
+                await s.commit()
+                await s.refresh(g)
+            return g, s
 
-    @app_commands.command(name="set_provider", description="Set the AI provider for this server.")
-    @app_commands.default_permissions(manage_guild=True)
-    async def set_provider(self, interaction: discord.Interaction, provider: str) -> None:
-        known = self.bot.ai.registry.known()
-        if provider not in known:
-            await interaction.response.send_message(
-                f"Unknown provider. Known: {', '.join(known)}", ephemeral=True
-            )
+    @commands.command(name="setpersonality")
+    @is_admin()
+    async def set_personality(self, ctx: commands.Context, mode: str) -> None:
+        """!setpersonality <mode> — set server personality."""
+        if mode not in PERSONALITY_MODES:
+            await ctx.send(f"Valid modes: {', '.join(sorted(PERSONALITY_MODES))}")
             return
-        await self.bot.guild_settings.update_settings(interaction.guild_id, ai_provider=provider)
-        await interaction.response.send_message(f"AI provider set to **{provider}**.", ephemeral=True)
+        g, s = await self._guild_row(ctx.guild.id)
+        g.personality = mode
+        await s.commit()
+        await ctx.send(f"Personality set to **{mode}** for this server.")
 
-    @app_commands.command(name="set_model", description="Set the AI model for this server.")
-    @app_commands.default_permissions(manage_guild=True)
-    async def set_model(self, interaction: discord.Interaction, model: str) -> None:
-        await self.bot.guild_settings.update_settings(interaction.guild_id, ai_model=model)
-        await interaction.response.send_message(f"AI model set to **{model}**.", ephemeral=True)
+    @commands.command(name="autonomous")
+    @is_admin()
+    async def set_autonomous(self, ctx: commands.Context, on: str) -> None:
+        """!autonomous <on|off> — allow Rosy to chat without being mentioned."""
+        val = on.lower() in ("on", "true", "yes", "1")
+        g, s = await self._guild_row(ctx.guild.id)
+        g.autonomous_replies = val
+        await s.commit()
+        await ctx.send(f"Autonomous replies: **{'ON' if val else 'OFF'}**.")
 
-    @app_commands.command(name="set_personality", description="Set Rose's personality mode.")
-    @app_commands.default_permissions(manage_guild=True)
-    async def set_personality(self, interaction: discord.Interaction, mode: str) -> None:
-        if mode not in PERSONALITIES:
-            await interaction.response.send_message(
-                f"Unknown mode. Options: {', '.join(sorted(PERSONALITIES))}", ephemeral=True
-            )
-            return
-        await self.bot.guild_settings.update_settings(interaction.guild_id, personality_mode=mode)
-        await interaction.response.send_message(f"Personality set to **{mode}**.", ephemeral=True)
+    @commands.command(name="setmodel")
+    @is_admin()
+    async def set_model(self, ctx: commands.Context, *, model: str) -> None:
+        """!setmodel <model> — set the AI model for this server."""
+        g, s = await self._guild_row(ctx.guild.id)
+        g.ai_model = model.strip()
+        await s.commit()
+        await ctx.send(f"AI model set to **{model.strip()}** for this server.")
 
-    @app_commands.command(name="set_autonomous", description="Enable/disable autonomous replies.")
-    @app_commands.default_permissions(manage_guild=True)
-    async def set_autonomous(self, interaction: discord.Interaction, enabled: bool) -> None:
-        await self.bot.guild_settings.update_settings(interaction.guild_id, autonomous_enabled=enabled)
-        await interaction.response.send_message(
-            f"Autonomous replies {'enabled' if enabled else 'disabled'}.", ephemeral=True
-        )
-
-
-async def setup(bot) -> None:
-    await bot.add_cog(Admin(bot))
+    @commands.command(name="guildsettings")
+    @is_admin()
+    async def guild_settings(self, ctx: commands.Context) -> None:
+        """!guildsettings — show this server's settings."""
+        g, s = await self._guild_row(ctx.guild.id)
+        embed = discord.Embed(title=f"Settings for {ctx.guild.name}", color=discord.Color.blurple())
+        embed.add_field(name="Personality", value=g.personality, inline=True)
+        embed.add_field(name="Autonomous replies", value=str(g.autonomous_replies), inline=True)
+        embed.add_field(name="AI model", value=g.ai_model or "default", inline=True)
+        embed.add_field(name="Provider", value=g.ai_provider, inline=True)
+        await ctx.send(embed=embed)

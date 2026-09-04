@@ -1,58 +1,68 @@
-"""Memory commands: remember, forget, show, clear. Guild/user isolation enforced."""
-
-from __future__ import annotations
+"""Memory commands: remember / forget / whatdoyouremember / clear."""
 
 import discord
-from discord import app_commands
 from discord.ext import commands
 
-from rosy.models import MemoryScope
+from ..db import session as db_session
+from ..memory.service import MemoryService
 
 
-class Memory(commands.Cog):
+class MemoryCog(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
 
-    def _scopes(self, interaction: discord.Interaction) -> tuple[MemoryScope, int | None, int | None]:
-        if interaction.guild is None:
-            return MemoryScope.dm, None, interaction.user.id
-        return MemoryScope.user_in_guild, interaction.guild.id, interaction.user.id
+    def _guild_id(self, ctx: commands.Context):
+        return ctx.guild.id if ctx.guild else None
 
-    @app_commands.command(name="remember", description="Ask Rosy to remember something.")
-    async def remember(self, interaction: discord.Interaction, content: str) -> None:
-        scope, guild_id, user_id = self._scopes(interaction)
-        await self.bot.memory.remember(
-            content, scope=scope, guild_id=guild_id, user_id=user_id, source="user", importance=0.6
-        )
-        await interaction.response.send_message("I've remembered that. 🧠", ephemeral=True)
-
-    @app_commands.command(name="forget", description="Ask Rosy to forget something specific.")
-    async def forget(self, interaction: discord.Interaction, content: str) -> None:
-        scope, guild_id, user_id = self._scopes(interaction)
-        ok = await self.bot.memory.forget(content, scope=scope, guild_id=guild_id, user_id=user_id)
-        await interaction.response.send_message(
-            "Forgotten." if ok else "I didn't have that memorized.",
-            ephemeral=True,
-        )
-
-    @app_commands.command(name="memories", description="Show what Rosy remembers for you.")
-    async def show(self, interaction: discord.Interaction) -> None:
-        scope, guild_id, user_id = self._scopes(interaction)
-        memories = await self.bot.memory.recall(scope=scope, guild_id=guild_id, user_id=user_id, limit=25)
-        if not memories:
-            await interaction.response.send_message("I don't have any memories here yet.", ephemeral=True)
+    @commands.command(name="remember", aliases=["remindme_remember", "memorize"])
+    async def remember(self, ctx: commands.Context, *, content: str) -> None:
+        """!remember <key> = <value>  — store a memory about you."""
+        if "=" not in content:
+            await ctx.send("Format: `!remember <key> = <value>`")
             return
-        lines = [f"- {m.content}" for m in memories]
-        embed = discord.Embed(title="Your memories", description="\n".join(lines))
-        embed.set_footer(text=f"{len(memories)} memories")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        key, value = content.split("=", 1)
+        async with db_session.get_sessionmaker()() as s:
+            svc = MemoryService(s)
+            await svc.remember(
+                user_id=ctx.author.id,
+                guild_id=self._guild_id(ctx),
+                key=key.strip(),
+                value=value.strip(),
+                memory_type="preference" if "prefer" in key.lower() else "fact",
+                source="user_command",
+            )
+        await ctx.send(f"Okay, I'll remember: **{key.strip()}**.")
 
-    @app_commands.command(name="clear_memories", description="Clear all your permitted memories here.")
-    async def clear(self, interaction: discord.Interaction) -> None:
-        scope, guild_id, user_id = self._scopes(interaction)
-        n = await self.bot.memory.clear_scope(scope=scope, guild_id=guild_id, user_id=user_id)
-        await interaction.response.send_message(f"Cleared {n} memories.", ephemeral=True)
+    @commands.command(name="forget", aliases=["unremember"])
+    async def forget(self, ctx: commands.Context, *, key: str) -> None:
+        """!forget <key> — delete a memory."""
+        async with db_session.get_sessionmaker()() as s:
+            svc = MemoryService(s)
+            ok = await svc.forget(
+                user_id=ctx.author.id, guild_id=self._guild_id(ctx), key=key.strip()
+            )
+        await ctx.send("Forgotten." if ok else "I don't have that memory.")
 
+    @commands.command(name="whatdoyouremember", aliases=["memories", "mymemories"])
+    async def whatdoyouremember(self, ctx: commands.Context) -> None:
+        """!whatdoyouremember — list memories about you."""
+        async with db_session.get_sessionmaker()() as s:
+            svc = MemoryService(s)
+            mems = await svc.list_user(
+                user_id=ctx.author.id, guild_id=self._guild_id(ctx)
+            )
+        if not mems:
+            await ctx.send("I don't have any memories about you yet.")
+            return
+        lines = [f"**{m.key}** — {m.value} ({m.memory_type})" for m in mems]
+        await ctx.send("\n".join(lines[:20]))
 
-async def setup(bot) -> None:
-    await bot.add_cog(Memory(bot))
+    @commands.command(name="clearmymemories")
+    async def clear(self, ctx: commands.Context) -> None:
+        """!clearmymemories — clear memories about you."""
+        async with db_session.get_sessionmaker()() as s:
+            svc = MemoryService(s)
+            count = await svc.clear(
+                user_id=ctx.author.id, guild_id=self._guild_id(ctx)
+            )
+        await ctx.send(f"Cleared {count} memory/ies about you.")

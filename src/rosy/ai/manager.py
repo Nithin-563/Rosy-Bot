@@ -1,187 +1,109 @@
-"""AI service layer.
+"""Provider manager: resolves a provider for a guild/DM and handles fallback."""
 
-Resolves per-guild (or global) provider configuration, builds a `Provider`,
-handles fallback, and records usage. It depends on the credential store for
-decrypting stored keys.
-"""
-
-from __future__ import annotations
-
-import asyncio
 import logging
+from typing import Optional
 
-import httpx
-
-from rosy.ai.base import (
-    ChatMessage,
-    ChatResult,
-    ProviderConfig,
-    ProviderRegistry,
-)
-from rosy.config import Settings
-from rosy.core.errors import AIProviderError
+from ..config import get_settings
+from ..db import encryption
+from .base import ChatMessage, ChatProvider, ChatResult
+from .providers import PROVIDER_CONFIGS, OpenAICompatProvider
 
 logger = logging.getLogger("rosy.ai.manager")
 
 
-class CredentialStore:
-    """Resolves provider credentials.
+class AIProviderManager:
+    """Creates provider instances from settings or stored guild credentials."""
 
-    Precedence: stored DB credentials (per guild) > environment variables.
-    """
+    def __init__(self) -> None:
+        self._cache: dict[tuple[Optional[int], str], ChatProvider] = {}
 
-    def __init__(self, settings: Settings, db) -> None:
-        self.settings = settings
-        self.db = db
-
-    def _env_credentials(self, provider: str) -> dict:
-        s = self.settings
-        by_provider = {
-            "openrouter": (s.openrouter_api_key, s.openrouter_base_url, s.default_model),
-            "openai": (s.openai_api_key, s.openai_base_url, s.openai_default_model),
-            "gemini": (s.gemini_api_key, s.gemini_base_url, s.gemini_default_model),
-            "anthropic": (s.anthropic_api_key, s.anthropic_base_url, s.anthropic_default_model),
-            "groq": (s.groq_api_key, s.groq_base_url, s.groq_default_model),
-            "mistral": (s.mistral_api_key, s.mistral_base_url, s.mistral_default_model),
-        }
-        key, base, model = by_provider.get(provider, ("", "", ""))
-        extra = {}
-        if provider == "openrouter":
-            extra = {"referer": s.openrouter_referer, "title": s.openrouter_title}
-        return {"api_key": key, "base_url": base, "model": model, "extra": extra}
-
-    async def resolve(self, provider: str, guild_id: int | None, model: str = "") -> ProviderConfig:
-        """Build a ProviderConfig, preferring DB-stored guild credentials."""
-        if guild_id is not None:
-            db_cred = await self._db_credentials(provider, guild_id)
-            if db_cred is not None:
-                return db_cred
-        env = self._env_credentials(provider)
-        if not env["api_key"]:
-            raise AIProviderError(
-                f"Provider '{provider}' has no API key configured.",
-                provider=provider,
-            )
-        return ProviderConfig(
-            provider=provider,
-            api_key=env["api_key"],
-            base_url=env["base_url"],
-            model=model or env["model"],
-            extra=env["extra"],
+    def _build(
+        self, provider: str, api_key: str, model: str | None, base_url: str | None
+    ) -> ChatProvider:
+        if provider not in PROVIDER_CONFIGS:
+            raise ValueError(f"Unknown provider: {provider}")
+        cfg = PROVIDER_CONFIGS[provider]
+        resolved_model = model or cfg.default_model
+        resolved_base = base_url or cfg.base_url
+        return OpenAICompatProvider(
+            api_key=api_key, model=resolved_model, base_url=resolved_base
         )
 
-    async def _db_credentials(self, provider: str, guild_id: int) -> ProviderConfig | None:
-        from rosy.core import decrypt
+    def get_default_provider(self) -> ChatProvider:
+        """Provider from global environment settings."""
+        settings = get_settings()
+        provider = settings.default_provider
+        return self._build(
+            provider,
+            settings.provider_api_key(provider),
+            settings.default_model,
+            getattr(settings, f"{provider}_base_url", None),
+        )
 
-        async with self.db.session() as session:
-            from sqlalchemy import select
+    async def resolve(
+        self,
+        *,
+        guild_id: Optional[int] = None,
+        stored_provider: Optional[str] = None,
+        stored_model: Optional[str] = None,
+        session=None,
+    ) -> ChatProvider:
+        """Resolve a provider, preferring per-guild stored credentials.
 
-            from rosy.models import ProviderCredential
+        ``stored_provider``/``stored_model`` come from the Guild record. If a
+        matching encrypted credential row exists we use it; otherwise we fall
+        back to the global default provider.
+        """
+        settings = get_settings()
+        provider_name = stored_provider or "default"
 
-            res = await session.execute(
-                select(ProviderCredential).where(
-                    ProviderCredential.guild_id == guild_id,
-                    ProviderCredential.provider == provider,
-                )
-            )
-            row = res.scalar_one_or_none()
-            if row is None:
-                return None
+        if provider_name == "default" or not provider_name:
+            return self.get_default_provider()
+
+        # Try to find guild credential override.
+        if guild_id is not None and session is not None:
             try:
-                key = decrypt(row.api_key_cipher)
-            except ValueError:
-                logger.warning("Could not decrypt stored credential for guild=%s provider=%s", guild_id, provider)
-                return None
-            return ProviderConfig(
-                provider=provider,
-                api_key=key,
-                base_url=row.base_url or "",
-                model=row.default_model,
-            )
+                from ..db.models import AIProviderCredential
 
+                stmt = AIProviderCredential.__table__.select().where(
+                    AIProviderCredential.__table__.c.guild_id == guild_id,
+                    AIProviderCredential.__table__.c.provider == provider_name,
+                    AIProviderCredential.__table__.c.is_active.is_(True),
+                )
+                row = (await session.execute(stmt)).first()
+                if row is not None:
+                    api_key = encryption.decrypt(row.api_key_enc)
+                    model = stored_model or row.model
+                    base_url = row.base_url
+                    return self._build(provider_name, api_key, model, base_url)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to resolve guild provider; falling back.")
 
-class AIManager:
-    """High-level AI facade used by the conversation engine."""
-
-    def __init__(self, settings: Settings, db, registry: ProviderRegistry | None = None) -> None:
-        self.settings = settings
-        self.db = db
-        self.registry = registry or ProviderRegistry()
-        self.credentials = CredentialStore(settings, db)
-        self._http: httpx.AsyncClient | None = None
-        self._lock = asyncio.Lock()
-
-    async def start(self) -> None:
-        self._http = httpx.AsyncClient(timeout=self.settings.http_timeout_seconds)
-
-    async def stop(self) -> None:
-        if self._http is not None:
-            await self._http.aclose()
-            self._http = None
-
-    @property
-    def http(self) -> httpx.AsyncClient:
-        if self._http is None:
-            raise RuntimeError("AIManager not started.")
-        return self._http
+        # Fall back to env key for the named provider.
+        api_key = settings.provider_api_key(provider_name)
+        if not api_key:
+            return self.get_default_provider()
+        model = stored_model or getattr(settings, f"{provider_name}_model", None)
+        base_url = getattr(settings, f"{provider_name}_base_url", None)
+        return self._build(provider_name, api_key, model, base_url)
 
     async def chat(
         self,
         messages: list[ChatMessage],
         *,
-        provider: str | None = None,
-        model: str = "",
-        guild_id: int | None = None,
-        temperature: float | None = None,
+        provider: Optional[ChatProvider] = None,
+        temperature: float = 0.8,
+        max_tokens: int | None = None,
         tools: list[dict] | None = None,
     ) -> ChatResult:
-        provider = provider or self.settings.default_provider
+        provider = provider or self.get_default_provider()
         try:
-            cfg = await self.credentials.resolve(provider, guild_id, model)
-        except AIProviderError:
+            return await provider.chat(
+                messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                tools=tools,
+            )
+        except Exception:
+            logger.exception("Chat request failed on %s", provider.name)
             raise
-        prov = self.registry.create(cfg.provider, cfg, self.http)
-        try:
-            result = await prov.chat(messages, temperature=temperature, tools=tools)
-        except AIProviderError:
-            # fallback: try the default provider if a per-guild one failed
-            if provider != self.settings.default_provider and self.settings.default_provider:
-                return await self.chat(
-                    messages,
-                    provider=self.settings.default_provider,
-                    model=model,
-                    guild_id=None,
-                    temperature=temperature,
-                    tools=tools,
-                )
-            raise
-        await self._record_usage(result, guild_id)
-        return result
-
-    async def _record_usage(self, result: ChatResult, guild_id: int | None) -> None:
-        try:
-            from rosy.models import Usage
-
-            async with self.db.session() as session:
-                session.add(
-                    Usage(
-                        guild_id=guild_id,
-                        provider=result.provider,
-                        model=result.model,
-                        prompt_tokens=result.prompt_tokens,
-                        completion_tokens=result.completion_tokens,
-                        kind="chat",
-                    )
-                )
-                await session.commit()
-        except Exception:  # pragma: no cover - never break chat on usage failure
-            logger.exception("Failed to record usage")
-
-
-def from_error(exc: Exception) -> str:
-    """Re-exported helper (safety wrapper)."""
-    from rosy.core.errors import AIProviderError as _AE
-
-    if isinstance(exc, _AE):
-        return str(exc)
-    return "AI error"

@@ -1,46 +1,88 @@
-# Deployment
+# Deploying Rosy to Railway
 
-## Railway (recommended)
+Rosy is fully containerised. Railway builds the included `Dockerfile` and runs
+the `rosy` command, which applies database migrations automatically on startup.
 
-1. Push this repo to a GitHub repository.
-2. In Railway, **New Project → Deploy from GitHub**, select the repo.
-3. Railway reads `railway.json` and the `Dockerfile` automatically.
-4. Add a **PostgreSQL** service (New → Database → PostgreSQL) to the project.
-5. Go to the deployed service → **Variables** and add:
-   - `ROS_DISCORD_TOKEN` — your bot token
-   - `ROS_OPENROUTER_API_KEY` — your OpenRouter key
-   - `ROS_ENCRYPTION_KEY` — a stable key (optional but recommended)
-6. **Deploy**. Railway injects `DATABASE_URL` automatically.
-7. Railway runs the health check against port `8080` (the bot serves `/`).
+---
 
-Slash commands register on startup. Check **Deployments** logs for `Logged in as
-Rosy` to confirm a clean start.
-
-## Other hosts
-
-Because the project reads everything from env vars and runs via
-`python -m rosy.main`, moving it is trivial:
-
-- **Docker / Fly.io / Render / Heroku**: use the same `Dockerfile` (or the
-  `CMD ["python", "-m", "rosy.main"]`), provide the same env vars and a
-  PostgreSQL instance.
-- **Systemd / bare metal**: `pip install .` then run
-  `ROS_DISCORD_TOKEN=... python -m rosy.main`.
-
-## Database migrations on a fresh host
-
-On first start the bot auto-creates all tables (`create_all`). For formal
-migrations run:
+## 1. Push to GitHub
 
 ```bash
-alembic upgrade head
+git init
+git add .
+git commit -m "Initial commit"
+git branch -M main
+git remote add origin <your-repo-url>
+git push -u origin main
 ```
 
-## Generating an encryption key
+The `.gitignore` already prevents `.env`, tokens and secrets from being
+committed.
 
-```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
+## 2. Create the project on Railway
 
-Set the output as `ROS_ENCRYPTION_KEY`. Keep it stable; changing it invalidates
-previously stored provider credentials.
+1. Go to [Railway.app](https://railway.app) and log in.
+2. Click **New Project → Deploy from GitHub repo**.
+3. Choose your repository and branch. Railway detects the `Dockerfile` via
+   `railway.json` (builder = `DOCKERFILE`).
+
+## 3. Add a PostgreSQL database
+
+1. Click **+ New → Database → PostgreSQL**.
+2. Railway provisions a Postgres instance and exposes a `$POSTGRES_URL`
+   connection string (already `postgresql://…`).
+
+## 4. Set the environment variables
+
+In your service's **Variables** tab, add:
+
+| Variable | Value |
+|----------|-------|
+| `DISCORD_TOKEN` | Your bot token (see `docs/DISCORD_SETUP.md`). |
+| `DATABASE_URL` | `$POSTGRES_URL` (Railway can reference the variable, or paste the URL with `+asyncpg` added: `postgresql+asyncpg://…`). |
+| `ENCRYPTION_KEY` | A 64-char hex key — generate with `python -c "import secrets; print(secrets.token_hex(32))"`. |
+| `OPENROUTER_API_KEY` | Your OpenRouter key. |
+
+Mark `DISCORD_TOKEN`, `ENCRYPTION_KEY` and `OPENROUTER_API_KEY` as **locked**
+(secret) in Railway.
+
+### DATABASE_URL note
+
+If you reference `$POSTGRES_URL`, note the driver: Rosy expects an async driver
+(`postgresql+asyncpg://…`). `$POSTGRES_URL` is `postgresql://…`, which
+SQLAlchemy will treat as `psycopg2` (sync) and fail. Either:
+- set `DATABASE_URL = postgresql+asyncpg://${{POSTGRES_URL...}}` style, or
+- simpler: copy the actual `$POSTGRES_URL` value and change the scheme prefix to
+  `postgresql+asyncpg://`.
+
+## 5. Deploy
+
+- Railway auto-deploys on every push to the branch.
+- On startup Rosy runs `alembic upgrade head`, then connects to Discord.
+- Watch the **Deploy Logs** for `Rosy is online as …`.
+
+## 6. Verify
+
+In your Discord server:
+
+- `!ping` → responds with latency.
+- `!info` → shows provider/model/servers.
+- Ask Rosy a question (mention or `@Rosy hello`).
+
+---
+
+## Moving to another host
+
+Rosy only depends on environment variables, so moving hosts is straightforward:
+
+- Set the same env vars on the new host.
+- Provide a PostgreSQL database.
+- Run `alembic upgrade head` (Rosy also does this on startup) and then `rosy`.
+
+No code changes are required.
+
+## Health check
+
+The Dockerfile includes a `HEALTHCHECK` that verifies the `rosy` package imports
+correctly. Discord bots do not expose an HTTP endpoint, so a web-based health
+check is not applicable.

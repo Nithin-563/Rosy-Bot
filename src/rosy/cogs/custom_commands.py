@@ -1,104 +1,111 @@
-"""Custom command cog: admins create server-specific commands (no arbitrary code)."""
+"""Custom (guild-specific) commands.
 
-from __future__ import annotations
+Admins create named commands with fixed responses or AI-powered responses.
+Custom commands only ever return text — they can never execute code.
+"""
 
 import discord
-from discord import app_commands
 from discord.ext import commands
 
-from rosy.core.errors import safe_user_message
-from rosy.models import CustomCommand
+from ..db import session as db_session
+from ..db.models import CustomCommand, Guild
+
+is_admin = commands.has_permissions(manage_guild=True)
 
 
-class CustomCommands(commands.Cog, name="Custom Commands"):
+class CustomCommandsCog(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="add_command", description="Create a custom command for this server.")
-    @app_commands.default_permissions(manage_guild=True)
-    async def add_command(self, interaction: discord.Interaction, name: str, response: str, ai_powered: bool = False) -> None:
-        name = name.lower().lstrip("!")
-        if not re_is_valid_name(name):
-            await interaction.response.send_message("Command names can only use letters, numbers, and underscores.", ephemeral=True)
-            return
-        async with self.bot.db.session() as session:
-            from sqlalchemy import select
+    async def _get_all(self, guild_id: int) -> list[CustomCommand]:
+        from sqlalchemy import select
 
-            res = await session.execute(
-                select(CustomCommand).where(
-                    CustomCommand.guild_id == interaction.guild_id,
-                    CustomCommand.name == name,
-                )
+        async with db_session.get_sessionmaker()() as s:
+            stmt = (
+                select(CustomCommand)
+                .where(CustomCommand.guild_id == guild_id, CustomCommand.enabled.is_(True))
+                .order_by(CustomCommand.name)
             )
-            cmd = res.scalar_one_or_none()
-            if cmd is None:
-                cmd = CustomCommand(guild_id=interaction.guild_id, name=name)
-                session.add(cmd)
-            cmd.response = response
-            cmd.ai_powered = ai_powered
-            cmd.enabled = True
-            await session.commit()
-        await interaction.response.send_message(f"Command `{name}` saved.")
-
-    @app_commands.command(name="remove_command", description="Delete a custom command.")
-    @app_commands.default_permissions(manage_guild=True)
-    async def remove_command(self, interaction: discord.Interaction, name: str) -> None:
-        name = name.lower().lstrip("!")
-        async with self.bot.db.session() as session:
-            from sqlalchemy import select
-
-            res = await session.execute(
-                select(CustomCommand).where(
-                    CustomCommand.guild_id == interaction.guild_id, CustomCommand.name == name
-                )
-            )
-            cmd = res.scalar_one_or_none()
-            if cmd is None:
-                await interaction.response.send_message(f"No command named `{name}`.", ephemeral=True)
-                return
-            await session.delete(cmd)
-            await session.commit()
-        await interaction.response.send_message(f"Removed `{name}`.")
+            result = await s.execute(stmt)
+            return list(result.scalars().all())
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot or message.guild is None:
             return
-        content = message.content.strip()
-        if not content or not content.startswith(("!", "<")):
+        content = message.content
+        if not content.startswith(self.bot.command_prefix):
             return
-        raw = content.lstrip("!").split()[0].lower()
-        async with self.bot.db.session() as session:
+        name = content[len(self.bot.command_prefix):].split()[0].lower() if len(content) > 1 else ""
+        if not name:
+            return
+        cmds = await self._get_all(message.guild.id)
+        target = next((c for c in cmds if c.name.lower() == name), None)
+        if target is None:
+            target = next((c for c in cmds if name in [a.lower() for a in (c.aliases or [])]), None)
+        if target is None:
+            return
+        # Do not shadow real built-in commands.
+        if self.bot.get_command(name):
+            return
+        if target.use_ai:
+            await self.bot._maybe_respond(message)
+            return
+        await message.channel.send(target.response or f"`{name}`")
+
+    @commands.group(name="command", invoke_without_command=True)
+    async def command(self, ctx: commands.Context) -> None:
+        cmds = await self._get_all(ctx.guild.id)
+        if not cmds:
+            await ctx.send("No custom commands yet. Use `!command add <name> <response>`.")
+            return
+        await ctx.send("Custom commands: " + ", ".join(c.name for c in cmds))
+
+    @command.command(name="add")
+    @is_admin
+    async def add(self, ctx: commands.Context, name: str, *, response: str) -> None:
+        if self.bot.get_command(name):
+            await ctx.send(f"`{name}` is a built-in command.")
+            return
+        async with db_session.get_sessionmaker()() as s:
+            g = await s.get(Guild, ctx.guild.id)
+            if g is None:
+                g = Guild(id=ctx.guild.id)
+                s.add(g)
+                await s.flush()
+            existing = next((c for c in g.custom_commands if c.name.lower() == name.lower()), None)
+            if existing:
+                existing.response = response
+            else:
+                s.add(CustomCommand(guild_id=ctx.guild.id, name=name.lower(), response=response))
+            await s.commit()
+        await ctx.send(f"Custom command **{name}** added.")
+
+    @command.command(name="remove")
+    @is_admin
+    async def remove(self, ctx: commands.Context, name: str) -> None:
+        async with db_session.get_sessionmaker()() as s:
+            stmt = CustomCommand.__table__.delete().where(
+                CustomCommand.__table__.c.guild_id == ctx.guild.id,
+                CustomCommand.__table__.c.name == name.lower(),
+            )
+            result = await s.execute(stmt)
+            await s.commit()
+        await ctx.send("Removed." if result.rowcount else "Not found.")
+
+    @command.command(name="ai")
+    @is_admin
+    async def ai(self, ctx: commands.Context, name: str, enabled: str) -> None:
+        async with db_session.get_sessionmaker()() as s:
             from sqlalchemy import select
 
-            res = await session.execute(
-                select(CustomCommand).where(
-                    CustomCommand.guild_id == message.guild.id,
-                    CustomCommand.name == raw,
-                    CustomCommand.enabled == True,  # noqa: E712
-                )
+            stmt = select(CustomCommand).where(
+                CustomCommand.guild_id == ctx.guild.id, CustomCommand.name == name.lower()
             )
-            cmd = res.scalar_one_or_none()
-        if cmd is None:
-            return
-        if cmd.ai_powered:
-            try:
-                result = await self.bot.conversation.generate(
-                    user_text=cmd.response, user_id=message.author.id,
-                    guild_id=message.guild.id, personality_mode="friendly",
-                )
-                await message.reply(result.text[:1999])
-            except Exception as exc:
-                await message.reply(safe_user_message(exc))
-        else:
-            await message.reply(cmd.response)
-
-
-def re_is_valid_name(name: str) -> bool:
-    import re
-
-    return bool(re.fullmatch(r"[A-Za-z0-9_]{1,64}", name))
-
-
-async def setup(bot) -> None:
-    await bot.add_cog(CustomCommands(bot))
+            cc = (await s.execute(stmt)).scalar_one_or_none()
+            if cc is None:
+                await ctx.send("Command not found.")
+                return
+            cc.use_ai = enabled.lower() in ("on", "true", "yes")
+            await s.commit()
+        await ctx.send(f"`{name}` AI mode set to {enabled.lower()}.")

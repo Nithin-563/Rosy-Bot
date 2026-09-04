@@ -1,145 +1,190 @@
 # Rosy 🤖
 
-Rosy is a **modular, production-quality AI Discord bot** built as an extensible
-platform — not just a chatbot. She chats naturally, remembers things per
-server/user, moderates, reminds you, plays games and music, answers in voice,
-and can be configured entirely from Discord.
+**Rosy** is a production-quality, modular AI Discord bot built in Python. She's
+not just a chatbot — she's an extensible platform whose primary interface is
+Discord. She can chat naturally, remember things, remind you, moderate your
+server, run games, and use tools like web search and math — all isolated
+per-server, deployable to Railway with a single Docker build.
 
-Built with Python 3.12+, `discord.py`, PostgreSQL, SQLAlchemy async, Alembic,
-Pydantic, and OpenRouter by default.
+> Rosy uses the official Discord **Bot API** (created via the Discord Developer
+> Portal). It is **not** a self-bot and never automates a normal user account.
 
 ---
 
 ## ✨ Features
 
-| Area | What Rosy does |
-|---|---|
-| 💬 **Conversation** | Mentions, replies, name usage, autonomous replies, cooldowns |
-| 🧠 **Memory** | Per-DM, per-guild, and user-in-guild memories with importance/expiry |
-| 📜 **Never forgets** | Every message/reply stored; recent history replayed into context |
-| 🎭 **Personality** | 11 adaptive tones (friendly, technical, supportive, humorous, …) |
-| 💖 **Emotional intelligence** | Detects mood (sad, anxious, happy, grateful…) and responds empathetically |
-| 🗂️ **Multi-server** | Strictly isolated settings, memories, and AI config per guild |
-| 🔌 **AI providers** | OpenRouter (default), OpenAI, Gemini, Anthropic, Groq, Mistral + fallback |
-| 🔐 **Security** | Encrypted API keys, no secrets in logs, safe tool execution, hardcoded guardrails |
-| 🛡️ **Identity guard** | Refuses prompt-injection, reveals no code/prompts, refuses destructive actions |
-| 🏷️ **Branding** | Answers as a MakeIt Company product (Wisee Models) without leaking the model |
-| 🌐 **Tools** | Safe math, time/date, **web search**, web fetch, file text extraction |
-| 🛡️ **Moderation** | warn, timeout, kick, ban, history, anti-flood |
-| ⏰ **Reminders** | Persistent, timezone-aware, survive restarts |
-| 🎮 **Games** | 8-ball, dice, trivia, guess-the-number, rock-paper-scissors |
-| 🎵 **Music** | play / pause / resume / skip / stop / queue (yt-dlp + ffmpeg) |
-| 🔊 **Voice** | join / leave, **speak replies aloud** (TTS), auto-speak toggle |
-| 🧩 **Custom commands** | Admins create server-specific commands (no arbitrary code) |
-| ⚙️ **Admin** | Everything configured through Discord |
-| 🔧 **Utilities** | pick, reverse, leetspeak, base64, hash, password, poll, avatar, server, search, … |
+- **Natural conversation engine** — replies to mentions, replies-to-Rosy, and
+  your name; optionally joins conversations autonomously (with cooldowns and
+  spam protection).
+- **Adaptive personality** — a stable core identity that shifts tone based on
+  context (friendly, casual, technical, supportive, playful…). She is always
+  honest that she is an AI.
+- **Memory system** — remembers preferences and facts, with full isolation
+  between servers, DMs, and user-in-guild. `!remember`, `!forget`,
+  `!whatdoyouremember`, `!clearmymemories`.
+- **Multi-provider AI** — OpenRouter by default, plus OpenAI, Gemini, Anthropic,
+  Groq and Mistral. Provider and model are configurable per server.
+- **Safe tools** — deterministic math, web search. Tool-calling architecture
+  with permission gating and validation.
+- **Moderation** — `!warn`, `!timeout`, `!kick`, `!ban`, `!modhistory`, with
+  persistent records. Rosy never bypasses Discord permissions.
+- **Reminders** — `!remindme 30m …`, persisted in PostgreSQL, survive restarts.
+- **Custom commands** — admins create server commands (text or AI-powered).
+- **Games** — `!roll`, `!8ball`, `!flip`, `!trivia`.
+- **Per-guild admin** — `!setpersonality`, `!autonomous`, `!setmodel`,
+  `!guildsettings` (requires `Manage Server` permission).
 
----
+## 🏗️ Architecture
 
-## 🚀 Quick start (local)
+Clean, layered separation (no giant files):
 
-```bash
-# 1. Python 3.11+ with a PostgreSQL (or SQLite) available
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[voice,web,pdf,dev]"
-
-# 2. Configure
-cp .env.example .env
-# fill in DISCORD_TOKEN (and OPENROUTER_API_KEY)
-
-# 3. Run database migrations (or let the bot auto-create tables)
-alembic upgrade head
-# — alternatively the bot runs create_all() on first start —
-
-# 4. Start
-python -m rosy.main
 ```
-
----
-
-## 🛤️ Deploy to Railway
-
-1. Push this repo to GitHub.
-2. On Railway, click **New Project → Deploy from GitHub** and pick the repo.
-3. Railway auto-detects the `Dockerfile`.
-4. Add a **PostgreSQL** plugin/service to the project.
-5. Set environment variables (see `.env.example` and the table below).
-6. Deploy. Railway sends `DATABASE_URL` automatically; just add
-   `ROS_DISCORD_TOKEN` and your AI key.
-
-Railway's built-in liveness health check hits port `8080` (configurable via
-`ROS_HEALTH_PORT`), which the bot serves.
-
----
-
-## 🔑 Environment variables
-
-All config uses the `ROS_` prefix. The only required ones are:
-
-| Variable | Required | Description |
-|---|---|---|
-| `ROS_DISCORD_TOKEN` | ✅ | Discord bot token |
-| `ROS_OPENROUTER_API_KEY` | ✅ (default AI) | OpenRouter API key |
-
-PostgreSQL `DATABASE_URL` is injected by Railway. Everything else has sensible
-defaults — see `.env.example` for the full list.
-
-Never commit `.env`. Secrets are loaded from environment variables only.
-
----
-
-## 📁 Project structure
+Discord Layer  ── cogs (general, admin, memory, moderation, reminders,
+                   custom_commands, fun)
+      │
+Event/Command Layer ── RosyBot (on_message decision engine)
+      │
+Conversation & Service Layer ── engine, context builder, personality,
+                                moderation, reminders
+      │
+AI / Tool Layer ── provider abstraction (OpenRouter, OpenAI, Gemini…),
+                   tool registry
+      │
+Memory / Knowledge Layer ── memory service (scoped & isolated)
+      │
+Database Layer ── SQLAlchemy 2.x async, Alembic, PostgreSQL
+```
 
 ```
 src/rosy/
-├── main.py            # entrypoint + health server
-├── bot.py             # app container wiring all services
-├── config.py          # pydantic-settings config
-├── core/              # db, security, errors, rate limiting
-├── models/            # SQLAlchemy ORM models (schema)
-├── ai/                # provider abstraction + manager + fallback
-├── conversation/      # engine, context builder, decision, personality
-├── memory/            # scoped memory service
-├── tools/             # safe tool framework + built-in tools
-├── settings/          # per-guild settings service
-├── moderation/        # moderation records + flood detection
-├── reminders/         # persistent scheduler
-├── cogs/              # Discord command/event layer
-└── plugins/           # future plugin framework
-alembic/               # database migrations
-tests/                 # automated tests (no real API keys)
+├── main.py                # entry point (runs migrations, starts bot)
+├── config.py              # pydantic-settings env config
+├── logging_config.py      # structured logging
+├── bot/rosy_bot.py        # bot wiring + response decision
+├── ai/                    # provider abstraction & manager
+│   └── providers/         # OpenRouter, OpenAI, Gemini, Anthropic, Groq, Mistral
+├── conversation/          # engine, context builder, personality
+├── memory/service.py      # scoped memory storage
+├── tools/                 # tool base, registry, math, web
+├── services/              # moderation, reminders
+├── db/                    # models, session, encryption
+└── cogs/                  # Discord command modules
 ```
+
+## 🧱 Tech Stack
+
+- **Python 3.12+**
+- **discord.py** 2.3+ (official Discord API)
+- **PostgreSQL** + **SQLAlchemy 2.x async** + **asyncpg**
+- **Alembic** migrations
+- **pydantic / pydantic-settings**
+- **httpx** async HTTP client
+- **cryptography** (Fernet) for encrypting stored API keys
+- **APScheduler**-style background loops for reminders
+- **pytest / pytest-asyncio** for testing
+
+---
+
+## 🚀 Quick Start (local)
+
+1. **Clone and install**
+
+   ```bash
+   git clone <your-repo-url> && cd rosy
+   python -m venv .venv && source .venv/bin/activate
+   pip install -e ".[dev]"
+   ```
+
+2. **Create your bot on Discord** — see [DISCORD_SETUP.md](docs/DISCORD_SETUP.md).
+
+3. **Configure environment**
+
+   ```bash
+   cp .env.example .env
+   # Fill in DISCORD_TOKEN, DATABASE_URL, ENCRYPTION_KEY, OPENROUTER_API_KEY
+   ```
+
+   Generate an encryption key:
+   ```bash
+   python -c "import secrets; print(secrets.token_hex(32))"
+   ```
+
+4. **Run the database migrations**
+
+   ```bash
+   alembic upgrade head
+   ```
+
+5. **Run Rosy**
+
+   ```bash
+   rosy
+   ```
+
+---
+
+## ☁️ Deploy to Railway
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full walkthrough. Short version:
+
+1. Push this repo to GitHub.
+2. On Railway, **New Project → Deploy from GitHub repo**.
+3. Add a **PostgreSQL** plugin and attach it.
+4. Set the required **environment variables** (below) in the service.
+5. Deploy — Railway uses the included `Dockerfile` and runs `rosy`, which
+   applies migrations automatically on startup.
+
+### Required environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `DISCORD_TOKEN` | Your bot token (secret). |
+| `DATABASE_URL` | SQLAlchemy async URL (Railway sets `$POSTGRES_URL`). |
+| `ENCRYPTION_KEY` | 64-hex key used to encrypt stored credentials (secret). |
+| `OPENROUTER_API_KEY` | OpenRouter key for AI responses (secret). |
+
+Optional: `OPENROUTER_MODEL`, provider keys/models, `ROS_PERSONALITY`,
+`ROS_AUTONOMOUS_REPLIES`, `LOG_LEVEL`, and more — see `.env.example`.
+
+> ⚠️ **Never commit a real `.env` or real tokens.** The `.gitignore` already
+> excludes them.
 
 ---
 
 ## 🧪 Tests
 
+Run the full suite (no real API keys needed — external services are mocked):
+
 ```bash
-pytest
+pytest -q
 ```
 
-Tests mock external services and require **no real API keys**.
+Tests cover config, encryption, tools, personality, the conversation engine,
+memory + guild/DM isolation, moderation, reminders, the AI manager, and the
+context builder.
 
----
+## 🗄️ Database Migrations
 
-## 📚 Documentation
+- Migrations live in `alembic/versions/`. Apply: `alembic upgrade head`.
+- Create a new migration after model changes:
+  `alembic revision --autogenerate -m "description"`.
+- See [docs/DATABASE.md](docs/DATABASE.md).
 
-- [`docs/DISCORD_DEVELOPER_PORTAL.md`](docs/DISCORD_DEVELOPER_PORTAL.md) — create the bot, token, intents, invite
-- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — Railway + other hosts
-- [`docs/DATABASE.md`](docs/DATABASE.md) — schema & migrations
-- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — common issues
+## 📚 Docs
 
----
+- [DISCORD_SETUP.md](docs/DISCORD_SETUP.md) — create the app, bot, token, intents, invite URL.
+- [DEPLOYMENT.md](docs/DEPLOYMENT.md) — Railway deployment.
+- [DATABASE.md](docs/DATABASE.md) — schema & migration notes.
+- [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — common issues.
 
-## 🧩 Extending
+## 🔒 Security
 
-Add a capability without touching the core:
+- Secrets are never hard-coded or logged.
+- Stored API keys are encrypted with Fernet.
+- Memory/data are isolated per guild — no cross-guild leakage.
+- Custom commands and tools can **never** execute arbitrary code.
+- Moderation respects Discord's permission system.
 
-- **New AI provider** → subclass `Provider` in `rosy/ai/providers.py`, register it.
-- **New tool** → subclass `BaseTool` in `rosy/tools/`, register in the registry.
-- **New command/event** → add a cog in `rosy/cogs/`.
-- **New game** → add a method to the `Games` cog.
+## 📄 License
 
-## License
-
-MIT — see [`LICENSE`](LICENSE).
+[MIT](LICENSE)

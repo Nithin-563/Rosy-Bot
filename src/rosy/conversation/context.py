@@ -1,75 +1,73 @@
-"""Context builder.
+"""Context builder: assembles a bounded, token-aware system/user prompt."""
 
-Assembles a bounded, token-budgeted context: recent messages, conversation
-summary, relevant memories, guild context, and personality. Does not dump
-unlimited history.
-"""
+import logging
+from dataclasses import dataclass
+from typing import Optional
 
-from __future__ import annotations
+from ..ai.base import ChatMessage
+from ..memory.service import MemoryService
+from ..conversation.personality import Personality
 
-from dataclasses import dataclass, field
+logger = logging.getLogger("rosy.context")
 
-from rosy.ai.base import ChatMessage
-from rosy.config import Settings
-from rosy.conversation.personality import Personality
-from rosy.models import Memory
+# Rough token estimate for display/limiting purposes.
+_CHARS_PER_TOKEN = 4
 
 
 @dataclass
-class Context:
-    """Everything needed to build the model prompt for one interaction."""
-
-    user_id: int | None = None
-    guild_id: int | None = None
-    channel_id: int | None = None
-    is_dm: bool = False
-    history: list[ChatMessage] = field(default_factory=list)
-    summary: str = ""
-    memories: list[Memory] = field(default_factory=list)
-    personality_mode: str = "friendly"
-    emotion: str = ""
-    guild_name: str = ""
-    user_name: str = ""
-    extra_notes: str = ""
+class ContextBundle:
+    system: str
+    user_messages: list[ChatMessage]
 
 
 class ContextBuilder:
-    def __init__(self, settings: Settings) -> None:
-        self.settings = settings
+    """Builds a context bundle for a single response."""
 
-    def _budget(self, text: str, budget: int) -> str:
-        """Cheap char-based token budget heuristic (~4 chars/token)."""
-        if not text:
-            return ""
-        max_chars = budget * 4
-        if len(text) <= max_chars:
-            return text
-        return text[:max_chars] + "…"
+    def __init__(self, personality: Personality, max_tokens: int = 4000):
+        self.personality = personality
+        self.max_tokens = max_tokens
 
-    def build_messages(self, ctx: Context) -> list[ChatMessage]:
-        personality = Personality(ctx.personality_mode)
-        system_parts = [personality.system_block(ctx.emotion)]
-        if ctx.is_dm:
-            system_parts.append("This is a private DM conversation. Keep this user's data private.")
-        if ctx.guild_name:
-            system_parts.append(f"You are in the server '{ctx.guild_name}'.")
-        if ctx.user_name:
-            system_parts.append(f"The person you are talking to is '{ctx.user_name}'.")
-        if ctx.summary:
-            system_parts.append(f"Conversation summary so far: {ctx.summary}")
+    @staticmethod
+    def _est_tokens(text: str) -> int:
+        return max(1, len(text) // _CHARS_PER_TOKEN)
 
-        mem_lines = [f"- {m.content} (importance {m.importance:.1f})" for m in ctx.memories]
-        if mem_lines:
-            budget = self.settings.max_context_tokens // 4
-            joined = "\n".join(mem_lines)
-            system_parts.append("Relevant memories:\n" + self._budget(joined, budget))
+    def build(
+        self,
+        *,
+        message_text: str,
+        author_name: str,
+        memories: list,
+        recent_history: list[ChatMessage] | None = None,
+        guild_name: Optional[str] = None,
+        extra_system: str = "",
+    ) -> ContextBundle:
+        parts = [self.personality.system_prompt]
 
-        if ctx.extra_notes:
-            system_parts.append(ctx.extra_notes)
+        if guild_name:
+            parts.append(f"Context: you are chatting in the server \"{guild_name}\".")
 
-        messages: list[ChatMessage] = [ChatMessage(role="system", content="\n\n".join(system_parts))]
+        memory_lines = [
+            f"- [{m.memory_type}] {m.key}: {m.value}" for m in memories[:8]
+        ]
+        if memory_lines:
+            parts.append("What you remember (use it naturally, do not quote it verbatim):\n" + "\n".join(memory_lines))
 
-        trimmed = ctx.history[-self.settings.max_context_messages:]
-        for m in reversed(trimmed):
-            messages.append(m)
-        return messages
+        if extra_system:
+            parts.append(extra_system)
+
+        system = "\n\n".join(parts)
+
+        user_messages: list[ChatMessage] = []
+        budget = self.max_tokens - self._est_tokens(system) - self._est_tokens(message_text)
+
+        # Build recent history, newest-last, trimming from the front to stay in budget.
+        if recent_history:
+            history: list[ChatMessage] = list(recent_history)
+            while history and self._est_tokens(sum(m.content for m in history)) > budget:
+                history.pop(0)
+            user_messages.extend(history)
+
+        user_messages.append(
+            ChatMessage(role="user", content=f"{author_name}: {message_text}")
+        )
+        return ContextBundle(system=system, user_messages=user_messages)

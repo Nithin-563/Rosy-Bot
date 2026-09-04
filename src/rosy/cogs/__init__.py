@@ -1,3 +1,19 @@
-"""Discord command cogs."""
+"""Discord cogs for Rosy."""
 
-__all__ = ["conversation", "memory", "admin", "moderation", "reminders", "games", "custom_commands", "music", "voice", "fun", "help"]
+from .general import GeneralCog
+from .admin import AdminCog
+from .memory import MemoryCog
+from .moderation import ModerationCog
+from .reminders import ReminderCog
+from .custom_commands import CustomCommandsCog
+from .fun import FunCog
+
+__all__ = [
+    "GeneralCog",
+    "AdminCog",
+    "MemoryCog",
+    "ModerationCog",
+    "ReminderCog",
+    "CustomCommandsCog",
+    "FunCog",
+]
