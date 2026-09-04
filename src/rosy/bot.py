@@ -188,6 +188,27 @@ class RosyBot(commands.Bot):
             pass
         logger.info("Command error in %s: %s", ctx.command, message)
 
+    async def on_app_command_error(self, interaction: discord.Interaction, error) -> None:
+        """Global slash-command error handler: never show the generic
+        'failed to respond'; always reply with something helpful."""
+        error = getattr(error, "original", error)
+        message = safe_user_message(error)
+        if not interaction.response.is_done():
+            try:
+                await interaction.response.send_message(message, ephemeral=True)
+            except Exception:  # noqa: BLE001
+                try:
+                    await interaction.followup.send(message, ephemeral=True)
+                except Exception:  # noqa: BLE001
+                    pass
+        else:
+            try:
+                await interaction.followup.send(message, ephemeral=True)
+            except Exception:  # noqa: BLE001
+                pass
+        logger.warning("App command %s error: %s", interaction.command, message)
+        logger.debug("App command error detail", exc_info=error)
+
 
 def build_bot(settings: Settings | None = None) -> RosyBot:
     return RosyBot(settings)

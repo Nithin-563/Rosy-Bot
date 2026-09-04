@@ -10,7 +10,7 @@ import random
 import time
 from dataclasses import dataclass
 
-BOW_NAMES = ("rosy",)
+BOW_NAMES = ("rose", "rosy", "rosie")
 
 
 @dataclass

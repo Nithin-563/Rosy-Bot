@@ -212,6 +212,61 @@ class Utility(commands.Cog, name="Utility"):
         for i in range(len(opts)):
             await msg.add_reaction(emojis[i])
 
+    # ------------------------------------------------------------ web info
+
+    @app_commands.command(name="weather", description="Get the current weather for a city.")
+    async def weather(self, interaction: discord.Interaction, city: str) -> None:
+        await interaction.response.defer()
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.get(
+                    "https://wttr.in/" + city.replace(" ", "+") + "?format=3&m"
+                )
+                text = (r.text or "").strip()
+            if not text or "Unknown location" in text:
+                await interaction.followup.send(f"Couldn't find weather for **{city}**.")
+            else:
+                await interaction.followup.send(f"🌤️ {text}")
+        except Exception as exc:
+            await interaction.followup.send(f"Weather lookup failed: {safe_str(exc)}")
+
+    @app_commands.command(name="define", description="Look up the definition of a word.")
+    async def define(self, interaction: discord.Interaction, word: str) -> None:
+        await interaction.response.defer()
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.get(f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}")
+                if r.status_code != 200:
+                    await interaction.followup.send(f"No definition found for **{word}**.")
+                    return
+                data = r.json()[0]
+                meaning = data.get("meanings", [{}])[0]
+                pos = meaning.get("partOfSpeech", "")
+                defn = meaning.get("definitions", [{}])[0].get("definition", "")
+                await interaction.followup.send(
+                    f"📖 **{word}** ({pos}): {defn}"[:1900]
+                )
+        except Exception as exc:
+            await interaction.followup.send(f"Definition lookup failed: {safe_str(exc)}")
+
+    @app_commands.command(name="fact", description="Get a random fun fact.")
+    async def fact(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.get("https://uselessfacts.jsph.pl/random.json?language=en", follow_redirects=True)
+                data = r.json()
+                text = data.get("text", "").strip()
+            await interaction.followup.send(f"💡 {text}" if text else "No fact right now!")
+        except Exception as exc:
+            await interaction.followup.send(f"Couldn't get a fact: {safe_str(exc)}")
+
 
 def safe_str(exc: Exception) -> str:
     return getattr(exc, "message", None) or str(exc)[:200]

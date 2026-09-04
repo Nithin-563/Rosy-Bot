@@ -56,7 +56,7 @@ def safe_user_message(exc: Exception) -> str:
     if isinstance(exc, PermissionDenied):
         return "You do not have permission to do that."
     if isinstance(exc, ProviderRateLimited):
-        return "Rosy's AI service is busy right now. Try again in a moment."
+        return "Rose's AI service is busy right now. Try again in a moment."
     if isinstance(exc, ProviderUnavailable):
         return "Rosy couldn't reach the AI service. Try again shortly."
     if isinstance(exc, ProviderAuthError):
@@ -65,8 +65,8 @@ def safe_user_message(exc: Exception) -> str:
         msg = str(exc)
         # Show a helpful hint without leaking raw response bodies/secrets.
         if "400" in msg and "rejected" in msg:
-            return "Rosy's AI model was rejected. Check that the model name is valid, or ask an admin."
-        return "Rosy's AI service returned an error. Try again shortly."
+            return "Rose's AI model was rejected. Check that the model name is valid, or ask an admin."
+        return "Rose's AI service returned an error. Try again shortly."
     if isinstance(exc, RateLimitExceeded):
         return "You're sending messages too quickly. Please slow down."
     if isinstance(exc, RosyError):

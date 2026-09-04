@@ -17,7 +17,7 @@ class Admin(commands.Cog, name="Admin"):
     def __init__(self, bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="config", description="Show Rosy's configuration for this server.")
+    @app_commands.command(name="config", description="Show Rose's configuration for this server.")
     @app_commands.default_permissions(manage_guild=True)
     async def config(self, interaction: discord.Interaction) -> None:
         gs = await self.bot.guild_settings.get_settings(interaction.guild_id)
@@ -48,7 +48,7 @@ class Admin(commands.Cog, name="Admin"):
         await self.bot.guild_settings.update_settings(interaction.guild_id, ai_model=model)
         await interaction.response.send_message(f"AI model set to **{model}**.", ephemeral=True)
 
-    @app_commands.command(name="set_personality", description="Set Rosy's personality mode.")
+    @app_commands.command(name="set_personality", description="Set Rose's personality mode.")
     @app_commands.default_permissions(manage_guild=True)
     async def set_personality(self, interaction: discord.Interaction, mode: str) -> None:
         if mode not in PERSONALITIES:

@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_referer: str = "https://rosy.bot"
-    openrouter_title: str = "Rosy"
+    openrouter_title: str = "Rose"
 
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"

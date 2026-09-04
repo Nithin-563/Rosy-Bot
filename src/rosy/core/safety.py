@@ -123,8 +123,8 @@ def _identity_reply(lower: str) -> str:
         )
     if re.search(r"\b(what\s+are\s+you|who\s+are\s+you)\b", lower):
         return (
-            f"I'm **Rosie**, your AI assistant here in this Discord server. I'm powered by "
-            f"**{MODEL_BRAND}** from {LAB}, which is a product built by **{HOST_COMPANY}**. "
+            f"I'm **Rose**, your AI assistant here in this Discord server — a friendly girl "
+            f"powered by **{MODEL_BRAND}** from {LAB}, a product built by **{HOST_COMPANY}**. "
             f"How can I help you today? 💜"
         )
     return (

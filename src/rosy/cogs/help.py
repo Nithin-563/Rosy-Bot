@@ -1,4 +1,4 @@
-"""Help cog: overview of Rosy's commands and capabilities."""
+"""Help cog: overview of Rose's commands and capabilities."""
 
 from __future__ import annotations
 
@@ -11,15 +11,15 @@ class Help(commands.Cog, name="Help"):
     def __init__(self, bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="help", description="Show what Rosy can do.")
+    @app_commands.command(name="help", description="Show what Rose can do.")
     async def help(self, interaction: discord.Interaction) -> None:
         embed = discord.Embed(
-            title="Rosy",
-            description="A modular AI assistant for Discord. Chat, remember, moderate, remind, and play.",
+            title="Rose",
+            description="A friendly AI girl for Discord. Chat, remember, moderate, remind, and play.",
             color=discord.Color.blurple(),
         )
         groups = {
-            "💬 Chat": ["/chat <prompt>", "Mention @Rosy", "Reply to Rosy"],
+            "💬 Chat": ["/chat <prompt>", "Mention @Rose", "Reply to Rose"],
             "🧠 Memory": ["/remember <thing>", "/forget <thing>", "/memories", "/clear_memories"],
             "⚙️ Admin": ["/config", "/set_provider", "/set_model", "/set_personality", "/set_autonomous"],
             "🛡️ Moderation": ["/warn", "/timeout", "/kick", "/ban", "/mod_history"],
