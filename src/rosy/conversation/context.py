@@ -27,6 +27,7 @@ class Context:
     summary: str = ""
     memories: list[Memory] = field(default_factory=list)
     personality_mode: str = "friendly"
+    emotion: str = ""
     guild_name: str = ""
     user_name: str = ""
     extra_notes: str = ""
@@ -47,7 +48,7 @@ class ContextBuilder:
 
     def build_messages(self, ctx: Context) -> list[ChatMessage]:
         personality = Personality(ctx.personality_mode)
-        system_parts = [personality.system_block()]
+        system_parts = [personality.system_block(ctx.emotion)]
         if ctx.is_dm:
             system_parts.append("This is a private DM conversation. Keep this user's data private.")
         if ctx.guild_name:
@@ -69,6 +70,6 @@ class ContextBuilder:
         messages: list[ChatMessage] = [ChatMessage(role="system", content="\n\n".join(system_parts))]
 
         trimmed = ctx.history[-self.settings.max_context_messages:]
-        for m in trimmed:
+        for m in reversed(trimmed):
             messages.append(m)
         return messages

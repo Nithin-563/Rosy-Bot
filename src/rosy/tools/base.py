@@ -84,7 +84,7 @@ class ToolRegistry:
     def llm_schemas(self) -> list[dict[str, Any]]:
         return [t.to_llm_schema() for t in self._tools.values()]
 
-    async def run(self, name: str, arguments: dict[str, Any], *, permission: str = "use_tools") -> str:
+    async def run(self, name: str, arguments: dict[str, Any], *, permission: str = "default_tools") -> str:
         spec = self.get(name)
         if spec.required_permission and permission != spec.required_permission:
             raise PermissionError(f"Missing permission '{spec.required_permission}' for tool '{name}'")

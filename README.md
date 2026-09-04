@@ -16,18 +16,23 @@ Pydantic, and OpenRouter by default.
 |---|---|
 | 💬 **Conversation** | Mentions, replies, name usage, autonomous replies, cooldowns |
 | 🧠 **Memory** | Per-DM, per-guild, and user-in-guild memories with importance/expiry |
+| 📜 **Never forgets** | Every message/reply stored; recent history replayed into context |
 | 🎭 **Personality** | 11 adaptive tones (friendly, technical, supportive, humorous, …) |
+| 💖 **Emotional intelligence** | Detects mood (sad, anxious, happy, grateful…) and responds empathetically |
 | 🗂️ **Multi-server** | Strictly isolated settings, memories, and AI config per guild |
 | 🔌 **AI providers** | OpenRouter (default), OpenAI, Gemini, Anthropic, Groq, Mistral + fallback |
-| 🔐 **Security** | Encrypted API keys at rest, no secrets in logs, safe tool execution |
-| 🌐 **Tools** | Safe math, time/date, web fetch, file text extraction |
+| 🔐 **Security** | Encrypted API keys, no secrets in logs, safe tool execution, hardcoded guardrails |
+| 🛡️ **Identity guard** | Refuses prompt-injection, reveals no code/prompts, refuses destructive actions |
+| 🏷️ **Branding** | Answers as a MakeIt Company product (Wisee Models) without leaking the model |
+| 🌐 **Tools** | Safe math, time/date, **web search**, web fetch, file text extraction |
 | 🛡️ **Moderation** | warn, timeout, kick, ban, history, anti-flood |
 | ⏰ **Reminders** | Persistent, timezone-aware, survive restarts |
-| 🎮 **Games** | 8-ball, dice, trivia, guess-the-number |
+| 🎮 **Games** | 8-ball, dice, trivia, guess-the-number, rock-paper-scissors |
 | 🎵 **Music** | play / pause / resume / skip / stop / queue (yt-dlp + ffmpeg) |
-| 🔊 **Voice** | join / leave voice channels |
+| 🔊 **Voice** | join / leave, **speak replies aloud** (TTS), auto-speak toggle |
 | 🧩 **Custom commands** | Admins create server-specific commands (no arbitrary code) |
 | ⚙️ **Admin** | Everything configured through Discord |
+| 🔧 **Utilities** | pick, reverse, leetspeak, base64, hash, password, poll, avatar, server, search, … |
 
 ---
 
@@ -138,16 +143,3 @@ Add a capability without touching the core:
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
-## OpenRouter model routing
-
-Rosy now defaults to OpenRouter's **Free Models Router**:
-
-```env
-ROS_DEFAULT_PROVIDER=openrouter
-ROS_DEFAULT_MODEL=openrouter/free
-ROS_OPENROUTER_FREE_MODEL=openrouter/free
-ROS_OPENROUTER_AUTO_MODEL=openrouter/auto
-ROS_OPENROUTER_API_KEY=sk-or-v1-...
-```
-
-`openrouter/free` is the free-inference router and selects an available free model. `openrouter/auto` is OpenRouter's task-aware Auto Router; the router itself has no routing fee, but it can select a paid model, so it should not be treated as a free-inference setting. Choose `openrouter/auto` explicitly when you want that behavior.

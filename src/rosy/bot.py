@@ -89,26 +89,29 @@ class RosyBot(commands.Bot):
     async def sync_commands(self) -> None:
         """Register slash commands with Discord.
 
-        Guilds in dev_guild_ids are synced instantly; otherwise commands are
-        registered globally (global sync can take up to an hour to propagate).
+        Syncs instantly to every guild the bot is in (so commands appear
+        immediately in the user's server) and also globally as a fallback.
         """
-        guild_ids = self.settings.guild_ids()
+        total = len(list(self.tree.get_commands()))
+        synced = 0
+        # Instant per-guild sync so commands show up right away.
+        for guild in self.guilds:
+            try:
+                await self.tree.sync(guild=guild)
+                synced += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not sync commands to guild %s: %s", guild.id, exc)
+        # Global sync as a fallback (can take up to an hour to propagate).
         try:
-            if guild_ids:
-                for gid in guild_ids:
-                    await self.tree.sync(guild=discord.Object(id=gid))
-                logger.info("Synced %d slash commands to dev guilds %s", len(list(self.tree.get_commands())), guild_ids)
-            else:
-                await self.tree.sync()
-                logger.info("Synced %d slash commands globally.", len(list(self.tree.get_commands())))
+            await self.tree.sync()
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Command sync failed")
             logger.error(
-                "Slash commands could not be registered: %s. This usually means the bot was "
-                "invited WITHOUT the 'applications.commands' OAuth scope. Re-invite Rosy using an "
-                "invite URL that grants BOTH 'bot' AND 'applications.commands' scopes.",
+                "Global slash command sync failed: %s. This usually means the bot was invited "
+                "WITHOUT the 'applications.commands' OAuth scope. Re-invite Rosy with BOTH "
+                "'bot' AND 'applications.commands' scopes.",
                 exc,
             )
+        logger.info("Synced %d slash commands to %d guild(s) (and globally).", total, synced)
 
     async def load_cogs(self) -> None:
         for cog in [
@@ -122,6 +125,7 @@ class RosyBot(commands.Bot):
             "music",
             "voice",
             "fun",
+            "utility",
             "help",
         ]:
             try:

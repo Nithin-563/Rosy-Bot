@@ -14,6 +14,8 @@ from rosy.config import Settings
 from rosy.conversation.context import Context, ContextBuilder
 from rosy.conversation.decision import DecisionEngine, DecisionInput
 from rosy.conversation.personality import Personality
+from rosy.conversation.store import ConversationStore
+from rosy.core.safety import classify
 from rosy.memory.service import MemoryService
 from rosy.models import MemoryScope
 
@@ -27,12 +29,14 @@ class ConversationEngine:
         ai: AIManager,
         memory: MemoryService,
         decision: DecisionEngine | None = None,
+        store: ConversationStore | None = None,
     ) -> None:
         self.settings = settings
         self.ai = ai
         self.memory = memory
         self.decision = decision or DecisionEngine()
         self.context_builder = ContextBuilder(settings)
+        self.store = store or ConversationStore(ai.db)
         self._last_response: dict[str, float] = {}
 
     async def should_respond(self, *, bot_id, author_id, content, mentions_me=False, is_reply_to_me=False, is_dm=False, is_bot=False, channel_key="", autonomous_enabled=True, probability=0.15) -> bool:
@@ -66,9 +70,26 @@ class ConversationEngine:
         provider: str | None = None,
         model: str = "",
     ) -> ChatResult:
+        # 1) Deterministic safety / identity guard (no LLM call -> fast & cheap).
+        decision = classify(user_text)
+        if decision is not None:
+            return ChatResult(
+                text=decision.reply,
+                provider="guard",
+                model="",
+                usage={"prompt_tokens": 0, "completion_tokens": 0},
+            )
+
+        # 2) Emotional intelligence + tone from the user's words.
+        from rosy.conversation.personality import Personality
+
+        emotion = Personality.detect_emotion(user_text)
+        mode = Personality.detect_mode(user_text, personality_mode)
+
+        # 3) Memory recall.
         memories = []
         try:
-            if getattr(self.settings, "memory_enabled", True) and self.memory:
+            if self.memory:
                 if is_dm and user_id:
                     memories += await self.memory.recall(scope=MemoryScope.dm, guild_id=None, user_id=user_id)
                 if guild_id:
@@ -78,15 +99,28 @@ class ConversationEngine:
         except Exception:  # pragma: no cover - memory must never block a reply
             logger.exception("Memory recall failed; continuing without memories.")
 
-        mode = Personality.detect_mode(user_text, personality_mode)
-        ctx = Context(
+        # 4) Replay recent persistent history so Rosie never forgets the thread.
+        recent = await self.store.recent(
+            guild_id=guild_id,
+            channel_id=channel_id,
             user_id=user_id,
+            is_dm=is_dm,
+            limit=self.settings.max_context_messages,
+        )
+        for entry in recent:
+            role = entry["role"]
+            if role not in ("user", "assistant"):
+                continue
+            history = (history or []) + [ChatMessage(role=role, content=entry["content"])]
+
+        ctx = Context(
             guild_id=guild_id,
             channel_id=channel_id,
             is_dm=is_dm,
             history=history or [],
             memories=memories,
             personality_mode=mode,
+            emotion=emotion,
             guild_name=guild_name,
             user_name=user_name,
         )
@@ -100,6 +134,15 @@ class ConversationEngine:
             model=model,
             guild_id=guild_id,
             temperature=self.settings.temperature,
+        )
+        # 5) Persist this exchange so it's never forgotten.
+        await self.store.append(
+            guild_id=guild_id, channel_id=channel_id, user_id=user_id,
+            is_dm=is_dm, role="user", content=user_text,
+        )
+        await self.store.append(
+            guild_id=guild_id, channel_id=channel_id, user_id=user_id,
+            is_dm=is_dm, role="assistant", content=result.text,
         )
         return result
 

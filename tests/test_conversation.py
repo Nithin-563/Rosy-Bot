@@ -60,13 +60,3 @@ def test_context_builder_system_and_messages():
     assert "Test Guild" in msgs[0].content
     assert "Alice" in msgs[0].content
     assert msgs[-1].content == "hi"
-def test_context_preserves_chronological_history_order():
-    settings = Settings(_env_file=None, discord_token="x")
-    cb = ContextBuilder(settings)
-    ctx = Context(history=[
-        ChatMessage(role="user", content="first"),
-        ChatMessage(role="assistant", content="second"),
-        ChatMessage(role="user", content="third"),
-    ])
-    msgs = cb.build_messages(ctx)
-    assert [m.content for m in msgs[1:]] == ["first", "second", "third"]

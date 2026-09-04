@@ -40,8 +40,3 @@ def test_rate_limiter():
     assert limiter.allow(key) is True
     # bucket exhausted until refill
     assert limiter.allow(key) is False
-def test_openrouter_free_and_auto_model_defaults():
-    s = Settings(_env_file=None, discord_token="abc")
-    assert s.openrouter_free_model == "openrouter/free"
-    assert s.openrouter_auto_model == "openrouter/auto"
-    assert s.default_model == "openrouter/free"

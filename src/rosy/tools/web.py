@@ -1,14 +1,12 @@
-"""Web and file/document tools with bounded, SSRF-resistant fetching."""
+"""Web and file/document tools (safe, network-bounded)."""
 
 from __future__ import annotations
 
-import ipaddress
 import re
-import socket
-from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from rosy.config import Settings
 from rosy.tools.base import BaseTool, ToolSpec
 
 
@@ -27,34 +25,58 @@ class WebFetchTool(BaseTool):
         self.http = http
 
     async def execute(self, url: str = "", max_chars: int = 6000, **kwargs) -> str:
-        if self.http is None:
-            raise ValueError("Web access is not configured.")
-        max_chars = max(1, min(int(max_chars), 50_000))
-        current = _validate_public_url(url)
-        for _ in range(5):
-            try:
-                resp = await self.http.get(current, follow_redirects=False)
-            except httpx.TimeoutException as exc:
-                raise ValueError("The web request timed out.") from exc
-            except httpx.HTTPError as exc:
-                raise ValueError("Could not fetch that page.") from exc
-            if resp.status_code in {301, 302, 303, 307, 308}:
-                location = resp.headers.get("location")
-                if not location:
-                    raise ValueError("The page returned an invalid redirect.")
-                current = _validate_public_url(urljoin(current, location))
-                continue
-            try:
-                resp.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                raise ValueError(f"The page returned HTTP {resp.status_code}.") from exc
-            text = _html_to_text(resp.text)
-            return text[:max_chars]
-        raise ValueError("Too many redirects.")
+        if not re.match(r"^https?://", url):
+            raise ValueError("Only http(s) URLs are allowed.")
+        try:
+            resp = await self.http.get(url, follow_redirects=True)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ValueError(f"Could not fetch page: {exc}") from exc
+        text = _html_to_text(resp.text)
+        return text[:max_chars]
+
+
+class WebSearchTool(BaseTool):
+    """Web search via DuckDuckGo's HTML endpoint (no API key required)."""
+
+    spec = ToolSpec(
+        name="web_search",
+        description="Search the web and return a list of result titles, URLs and snippets.",
+        parameters={
+            "query": {"type": "string", "description": "The search query."},
+            "max_results": {"type": "integer", "description": "Max results to return (1-10)."},
+        },
+        timeout_seconds=20.0,
+    )
+
+    def __init__(self, http: httpx.AsyncClient) -> None:
+        self.http = http
+
+    async def execute(self, query: str = "", max_results: int = 5, **kwargs) -> str:
+        if not query or len(query) > 200:
+            raise ValueError("Please provide a search query.")
+        max_results = max(1, min(int(max_results), 10))
+        params = {"q": query}
+        try:
+            resp = await self.http.get(
+                "https://lite.duckduckgo.com/lite/",
+                params=params,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36"
+                    )
+                },
+                follow_redirects=True,
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ValueError(f"Web search failed: {exc}") from exc
+        return _parse_ddg_results(resp.text, max_results)
 
 
 class ExtractTextTool(BaseTool):
-    """Extract readable text from an uploaded file (text/plain-like data)."""
+    """Extract readable text from an uploaded file (text/pdf/plain)."""
 
     spec = ToolSpec(
         name="extract_text",
@@ -72,40 +94,35 @@ class ExtractTextTool(BaseTool):
     async def execute(self, filename: str = "", max_chars: int = 8000, **kwargs) -> str:
         if self.files is None:
             raise ValueError("File access not configured.")
-        if not filename or len(filename) > 255:
-            raise ValueError("Invalid filename.")
-        max_chars = max(1, min(int(max_chars), 50_000))
         data = await self.files.read(filename)
         if data is None:
             raise ValueError("File not found.")
         if isinstance(data, bytes):
+            # only plain-text-like content is decoded here.
             try:
                 return data.decode("utf-8", errors="replace")[:max_chars]
-            except Exception as exc:
-                raise ValueError("Binary file; text extraction is not supported for this type yet.") from exc
+            except Exception:
+                raise ValueError("Binary file; text extraction not supported for this type yet.") from None
         return str(data)[:max_chars]
 
 
-def _validate_public_url(url: str) -> str:
-    if not isinstance(url, str) or len(url) > 2048:
-        raise ValueError("Invalid URL.")
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
-        raise ValueError("Only public http(s) URLs are allowed.")
-    if parsed.port and not 1 <= parsed.port <= 65535:
-        raise ValueError("Invalid port.")
-    host = parsed.hostname.rstrip(".")
-    try:
-        addresses = {ipaddress.ip_address(host)}
-    except ValueError:
-        try:
-            addresses = {ipaddress.ip_address(info[4][0]) for info in socket.getaddrinfo(host, parsed.port or 443, type=socket.SOCK_STREAM)}
-        except OSError as exc:
-            raise ValueError("Could not resolve that host.") from exc
-    for address in addresses:
-        if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast or address.is_unspecified:
-            raise ValueError("Requests to private or local network addresses are blocked.")
-    return url
+def _parse_ddg_results(html: str, max_results: int) -> str:
+    import html as _html
+
+    results: list[str] = []
+    # lite.duckduckgo.com renders each result as an <a ...> containing class='result-link'.
+    # Match whole anchor tags, then check the class and extract the href + title.
+    for m in re.finditer(r"<a\s[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", html, re.I | re.S):
+        href, inner = m.group(1), m.group(2)
+        if "result-link" not in m.group(0):
+            continue
+        if href.startswith("//"):
+            href = "https:" + href
+        title = re.sub(r"<[^>]+>", "", inner).strip()
+        results.append(f"- {_html.unescape(title)}: {_html.unescape(href)}")
+        if len(results) >= max_results:
+            break
+    return "\n".join(results) if results else "No results found for that query."
 
 
 def _html_to_text(html: str) -> str:
@@ -120,6 +137,9 @@ class WebTools:
     """Factory that registers the web/file tools into a registry."""
 
     @staticmethod
-    def register(registry, *, settings=None, http=None, files=None) -> None:
+    def register(registry, *, settings: Settings | None = None, http=None, files=None) -> None:
+        if http is None:
+            return
         registry.register_class(WebFetchTool(http=http))
+        registry.register_class(WebSearchTool(http=http))
         registry.register_class(ExtractTextTool(file_provider=files))

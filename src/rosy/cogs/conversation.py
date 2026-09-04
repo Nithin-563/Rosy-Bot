@@ -81,6 +81,13 @@ class Conversation(commands.Cog):
             if len(text) > 2000:
                 text = text[:1997] + "..."
             await message.reply(text)
+            # Optional: speak the reply aloud if auto-speak is on.
+            voice = self.bot.get_cog("Voice")
+            if voice is not None and getattr(voice, "auto_speak", False):
+                try:
+                    await voice.speak(text)
+                except Exception:
+                    logger.warning("Could not speak reply in voice")
         except Exception as exc:
             try:
                 await message.reply(safe_user_message(exc))
