@@ -4,8 +4,10 @@ All configuration comes from environment variables via pydantic-settings so the
 bot runs identically in dev and on Railway. Secrets are never hard-coded.
 """
 
+import os
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PERSONALITY_MODES = {
@@ -39,7 +41,34 @@ class Settings(BaseSettings):
     )
 
     # Discord
-    discord_token: str = ""
+    # Accept multiple common env-var names because providers (e.g. Railway
+    # autodetect) and users sometimes name the token differently.
+    discord_token: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "DISCORD_TOKEN",
+            "DISCORD_BOT_TOKEN",
+            "BOT_TOKEN",
+            "ROSY_TOKEN",
+            "DISCORDTOKEN",
+            "DISCORD_TOKEN_VALUE",
+        ),
+    )
+
+    # Env vars actually visible to this process (names only, never values).
+    @property
+    def visible_env_names(self) -> list[str]:
+        names = [k for k in os.environ.keys() if "DISCORD" in k.upper() or "TOKEN" in k.upper() or "KEY" in k.upper()]
+        return sorted(names)
+
+    @property
+    def configured(self) -> dict[str, bool]:
+        return {
+            "DISCORD_TOKEN": bool(self.discord_token),
+            "DATABASE_URL": bool(self.database_url),
+            "ENCRYPTION_KEY": bool(self.encryption_key),
+            "OPENROUTER_API_KEY": bool(self.openrouter_api_key),
+        }
 
     # Database
     database_url: str = "postgresql+asyncpg://rosy:rosy@localhost:5432/rosy"

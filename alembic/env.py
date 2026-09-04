@@ -14,14 +14,15 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from rosy.db.base import Base
 from rosy.db import models  # noqa: F401  (register all tables on Base.metadata)
+from rosy.db.url import normalize_database_url
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL", "postgresql+asyncpg://rosy:rosy@localhost:5432/rosy"
+DATABASE_URL = normalize_database_url(
+    os.environ.get("DATABASE_URL", "postgresql+asyncpg://rosy:rosy@localhost:5432/rosy")
 )
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 

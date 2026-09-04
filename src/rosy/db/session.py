@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from ..config import get_settings
+from .url import normalize_database_url
 
 logger = logging.getLogger("rosy.db")
 
@@ -36,7 +37,7 @@ def init_engine(database_url: str | None = None) -> AsyncEngine:
     global _engine, _sessionmaker
     if _engine is not None:
         return _engine
-    url = database_url or get_settings().database_url
+    url = normalize_database_url(database_url or get_settings().database_url)
     logger.info("Initialising database engine.")
     _engine = _make_engine(url)
     _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
