@@ -147,9 +147,19 @@ class RosyBot(commands.Bot):
 
     async def on_ready(self) -> None:
         logger.info("Logged in as %s (%s)", self.user, self.user.id)
+        # Let the health server in main.py know we're online.
+        ready = getattr(self, "ready_event", None)
+        if ready is not None:
+            ready.set()
+        # Sync slash commands to every guild + globally. This is the ONLY place
+        # command registration runs; main.py must NOT override on_ready.
         if not getattr(self, "_synced", False):
-            await self.sync_commands()
-            self._synced = True
+            try:
+                await self.sync_commands()
+            except Exception:  # pragma: no cover - never let sync crash startup
+                logger.exception("Command sync raised in on_ready")
+            finally:
+                self._synced = True
 
     async def close(self) -> None:
         await self.reminders.stop()

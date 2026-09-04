@@ -62,10 +62,10 @@ def main() -> int:
         # Brief pause so the health server is listening before we connect.
         await asyncio.sleep(0.2)
 
-        @bot.event
-        async def on_ready():
-            ready.set()
-            logger.info("Rosy is online as %s (%s)", bot.user, bot.user.id)
+        # Give the bot access to the health 'ready' event. Command syncing and
+        # the online log live in RosyBot.on_ready (we must NOT override on_ready
+        # here, or slash commands would never be registered).
+        bot.ready_event = ready
 
         try:
             await bot.start(settings.discord_token)  # blocks while running

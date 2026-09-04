@@ -7,6 +7,7 @@ adaptation for a single chat interaction.
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 from rosy.ai import AIManager, ChatMessage, ChatResult
@@ -17,9 +18,44 @@ from rosy.conversation.personality import Personality
 from rosy.conversation.store import ConversationStore
 from rosy.core.safety import classify
 from rosy.memory.service import MemoryService
-from rosy.models import MemoryScope
+from rosy.models import MemoryScope, MemoryType
 
 logger = logging.getLogger("rosy.conversation")
+
+
+_FACT_PATTERNS = [
+    (r"(?:my\s+favorite|my\s+favourite|i\s+love|i\s+like|i\s+prefer|i\s+enjoy)\s+([^.,!?;]{2,60})", "The user likes {0}.", re.I),
+    (r"(?:i\s+am\s+from|i\s+live\s+in|i\s+am\s+based\s+in)\s+([^.,!?;]{2,40}?)(?:\s+(?:and|but|where|which|also)|$)", "The user is from {0}.", re.I),
+    (r"(?:my\s+birthday\s+is|i\s+was\s+born\s+on)\s+([^.,!?;]{2,30})", "The user's birthday is {0}.", re.I),
+    (r"(?:i\s+work\s+(?:as|at)\s+|i\s+am\s+a)\s+([^.,!?;]{2,40})", "The user works as {0}.", re.I),
+]
+
+
+_NAME_PATTERN = (
+    r"(?:my\s+name\s+is|i\s+am\s+called|call\s+me|you\s+can\s+call\s+me)\s+"
+    r"([A-Z][a-zA-Z\-]+(?:\s[A-Z][a-zA-Z\-]+)?)"
+)
+
+
+def extract_facts(user_text: str) -> list[str]:
+    """Heuristically pull a few durable personal facts from a message."""
+    import re
+
+    text = user_text.strip()
+    if not text or len(text) > 400:
+        return []
+    facts: list[str] = []
+    # Name is matched case-sensitively so we don't capture random lowercase words.
+    for m in re.finditer(_NAME_PATTERN, text):
+        value = m.group(1).strip().rstrip(".")
+        if 2 <= len(value) <= 40 and value.split()[0][0].isupper():
+            facts.append("The user's name is {0}.".format(value))
+    for pattern, template, flags in _FACT_PATTERNS:
+        for m in re.finditer(pattern, text, flags):
+            value = m.group(1).strip().rstrip(".")
+            if 2 <= len(value) <= 60:
+                facts.append(template.format(value))
+    return facts
 
 
 class ConversationEngine:
@@ -128,6 +164,13 @@ class ConversationEngine:
         ctx.history = (ctx.history or []) + [ChatMessage(role="user", content=user_text)]
         messages = self.context_builder.build_messages(ctx)
 
+        # 5) Persist the user message BEFORE the AI call so it is never lost,
+        #    even if the provider errors out.
+        await self.store.append(
+            guild_id=guild_id, channel_id=channel_id, user_id=user_id,
+            is_dm=is_dm, role="user", content=user_text,
+        )
+
         result = await self.ai.chat(
             messages,
             provider=provider,
@@ -135,16 +178,35 @@ class ConversationEngine:
             guild_id=guild_id,
             temperature=self.settings.temperature,
         )
-        # 5) Persist this exchange so it's never forgotten.
-        await self.store.append(
-            guild_id=guild_id, channel_id=channel_id, user_id=user_id,
-            is_dm=is_dm, role="user", content=user_text,
-        )
+        # 6) Persist the assistant reply.
         await self.store.append(
             guild_id=guild_id, channel_id=channel_id, user_id=user_id,
             is_dm=is_dm, role="assistant", content=result.text,
         )
+        # 7) Auto-store important personal facts (name, likes, preferences) so
+        #    Rosy remembers them across channels and sessions.
+        await self._auto_remember_facts(
+            user_text, user_id=user_id, guild_id=guild_id, is_dm=is_dm
+        )
         return result
+
+    async def _auto_remember_facts(
+        self, user_text: str, *, user_id: int | None, guild_id: int | None, is_dm: bool
+    ) -> None:
+        if not user_id or not self.memory:
+            return
+        facts = extract_facts(user_text)
+        if not facts:
+            return
+        scope = MemoryScope.dm if is_dm else MemoryScope.user_in_guild
+        for fact in facts:
+            try:
+                await self.memory.remember(
+                    fact, scope=scope, guild_id=guild_id, user_id=user_id,
+                    mtype=MemoryType.user_preference, importance=0.7, source="auto",
+                )
+            except Exception:
+                logger.debug("Could not auto-store fact: %s", fact)
 
     def mark_response(self, channel_key: str) -> None:
         self._last_response[channel_key] = time.monotonic()
