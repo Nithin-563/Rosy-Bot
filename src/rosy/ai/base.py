@@ -83,10 +83,12 @@ class Provider(abc.ABC):
         if resp.status_code >= 500:
             raise ProviderUnavailable(f"{self.name} HTTP {resp.status_code}", provider=self.name)
         if 400 <= resp.status_code < 500:
-            # e.g. invalid model name / malformed request -> give a clear, loggable error.
-            detail = (resp.text or "")[:200]
+            # Keep provider details in logs, but don't surface response bodies to the user.
+            detail = (resp.text or "")[:500]
+            logger = __import__("logging").getLogger("rosy.ai.provider")
+            logger.warning("%s rejected request HTTP %s: %s", self.name, resp.status_code, detail)
             raise AIProviderError(
-                f"{self.name} rejected the request (HTTP {resp.status_code}): {detail}",
+                f"{self.name} rejected the request (HTTP {resp.status_code}).",
                 provider=self.name,
             )
         resp.raise_for_status()

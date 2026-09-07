@@ -48,6 +48,11 @@ class CredentialStore:
         extra = {}
         if provider == "openrouter":
             extra = {"referer": s.openrouter_referer, "title": s.openrouter_title}
+        if provider == "openrouter":
+            if s.openrouter_auto_model and str(s.default_model).strip().lower() in {"", "openrouter/auto", "auto"}:
+                model = s.openrouter_auto_model
+            elif s.openrouter_free_model and "free" in str(model).lower() and model in {"", s.default_model}:
+                model = s.openrouter_free_model
         return {"api_key": key, "base_url": base, "model": model, "extra": extra}
 
     async def resolve(self, provider: str, guild_id: int | None, model: str = "") -> ProviderConfig:
@@ -143,7 +148,18 @@ class AIManager:
         prov = self.registry.create(cfg.provider, cfg, self.http)
         try:
             result = await prov.chat(messages, temperature=temperature, tools=tools)
-        except AIProviderError:
+        except AIProviderError as exc:
+            # Some OpenRouter models advertise chat support but reject native tool
+            # schemas. Retry once without tools so ordinary conversation still works.
+            if tools and self.settings.tool_calls_enabled and "400" in str(exc):
+                logger.warning("Provider %s rejected tool payload; retrying without tools", provider)
+                try:
+                    result = await prov.chat(messages, temperature=temperature, tools=None)
+                except AIProviderError:
+                    result = None
+                if result is not None:
+                    await self._record_usage(result, guild_id)
+                    return result
             # fallback: try the default provider if a per-guild one failed
             if provider != self.settings.default_provider and self.settings.default_provider:
                 return await self.chat(
@@ -152,7 +168,7 @@ class AIManager:
                     model=model,
                     guild_id=None,
                     temperature=temperature,
-                    tools=tools,
+                    tools=None,
                 )
             raise
         await self._record_usage(result, guild_id)

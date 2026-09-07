@@ -180,6 +180,16 @@ class Conversation(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class ProcessedDiscordMessage(Base):
+    """Distributed idempotency record preventing duplicate bot replies across replicas."""
+
+    __tablename__ = "processed_discord_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    message_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class Message(Base):
     """Stored message context (trimmed, not full user content by default)."""
 

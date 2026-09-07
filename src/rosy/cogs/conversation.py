@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy.exc import IntegrityError
+
 import discord
 from discord.ext import commands
 
@@ -27,6 +29,21 @@ class Conversation(commands.Cog):
         await self._handle(message, is_dm=False)
 
     async def _handle(self, message: discord.Message, is_dm: bool) -> None:
+        # Discord can deliver an event to more than one running bot replica.
+        # Claim the message in the shared DB so only one replica answers it.
+        try:
+            from rosy.models import ProcessedDiscordMessage
+            async with self.bot.db.session() as session:
+                session.add(ProcessedDiscordMessage(message_id=message.id))
+                try:
+                    await session.commit()
+                except IntegrityError:
+                    await session.rollback()
+                    return
+        except Exception:
+            # Do not disable conversation if idempotency storage is temporarily unavailable.
+            logger.exception("Message idempotency check failed; continuing")
+
         mentions_me = message.mentions and self.bot.user in message.mentions
         is_reply = False
         if message.reference and message.reference.resolved is not None:
@@ -96,9 +113,11 @@ class Conversation(commands.Cog):
                     logger.exception("Automatic memory capture failed")
             await message.reply(text)
         except Exception as exc:
+            # One inbound message gets at most one error response. Never attempt a
+            # second fallback reply after Discord has already accepted the first.
             try:
-                await message.reply(safe_user_message(exc))
-            except Exception:
+                await message.reply(safe_user_message(exc), mention_author=False)
+            except discord.HTTPException:
                 pass
             logger.exception("Conversation error")
 

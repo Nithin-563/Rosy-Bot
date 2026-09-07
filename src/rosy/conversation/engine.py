@@ -121,6 +121,10 @@ class ConversationEngine:
         ctx.history = (ctx.history or []) + [ChatMessage(role="user", content=user_text)]
         messages = self.context_builder.build_messages(ctx)
         tool_schemas = self.tools.llm_schemas() if self.tools and self.settings.tool_calls_enabled else None
+        # Avoid tool payloads for providers/models explicitly known to be free/non-tool.
+        normalized_model = (model or self.settings.default_model or "").strip().lower()
+        if "free" in normalized_model and "tools" not in normalized_model:
+            tool_schemas = None
 
         result = await self.ai.chat(messages, provider=provider, model=model, guild_id=guild_id, temperature=self.settings.temperature, tools=tool_schemas)
         rounds = 0

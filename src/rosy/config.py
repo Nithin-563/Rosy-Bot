@@ -18,7 +18,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # uses. Primary ROS_* names still take precedence.
 _ENV_ALIASES = {
     "discord_token": ["DISCORD_TOKEN", "DISCORD_BOT_TOKEN"],
-    "openrouter_api_key": ["OPENROUTER_API_KEY"],
+    "openrouter_api_key": ["OPENROUTER_API_KEY", "OPENROUTER_KEY"],
     "openai_api_key": ["OPENAI_API_KEY"],
     "gemini_api_key": ["GEMINI_API_KEY"],
     "anthropic_api_key": ["ANTHROPIC_API_KEY"],
@@ -111,6 +111,8 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_referer: str = "https://rosy.bot"
     openrouter_title: str = "Rosy"
+    openrouter_auto_model: str = "openrouter/auto"
+    openrouter_free_model: str = ""
 
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
@@ -191,6 +193,14 @@ class Settings(BaseSettings):
 
     def guild_ids(self) -> list[int]:
         return [int(x) for x in self.dev_guild_ids.split(",") if x.strip()]
+
+    def validate_ai_configuration(self) -> None:
+        if self.default_provider == "openrouter" and not self.openrouter_api_key.strip():
+            raise ValueError(
+                "Missing OpenRouter API key. Set ROS_OPENROUTER_API_KEY (or OPENROUTER_API_KEY) in Railway."
+            )
+        if not self.default_model.strip():
+            raise ValueError("ROS_DEFAULT_MODEL must not be empty.")
 
 
 @lru_cache

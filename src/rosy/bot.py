@@ -78,6 +78,11 @@ class RosyBot(commands.Bot):
     # ------------------------------------------------------------- lifecycle
 
     async def setup_hook(self) -> None:
+        try:
+            self.settings.validate_ai_configuration()
+        except ValueError as exc:
+            logger.error("Invalid AI configuration: %s", exc)
+            raise
         logger.info("Using database: %s", _redact_db_url(self.db.engine.url))
         await self.db.create_all()
         logger.info("Database schema ready.")
