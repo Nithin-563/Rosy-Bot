@@ -1,42 +1,42 @@
-"""Config tests."""
+"""Config, security, and rate-limit unit tests."""
+
 from __future__ import annotations
 
+import pytest
+
 from rosy.config import Settings
+from rosy.core import encrypt, decrypt, redact, RateLimiter
 
 
-def test_default_provider_is_openrouter():
-    s = Settings(discord_token="x")
-    assert s.default_provider_name == "openrouter"
-    assert s.ai_default_provider == "openrouter"
+def test_settings_env_prefix():
+    import os
+
+    os.environ["ROS_DISCORD_TOKEN"] = "abc"
+    os.environ["ROS_DEFAULT_MODEL"] = "custom/model"
+    s = Settings(_env_file=None)
+    assert s.discord_token == "abc"
+    assert s.default_model == "custom/model"
+    del os.environ["ROS_DISCORD_TOKEN"]
+    del os.environ["ROS_DEFAULT_MODEL"]
 
 
-def test_postgres_detection():
-    s = Settings(discord_token="x", database_url="postgresql+asyncpg://u:p@h/db")
-    assert s.is_postgres is True
-    s2 = Settings(discord_token="x", database_url="sqlite+aiosqlite:///./x.db")
-    assert s2.is_postgres is False
+def test_security_roundtrip():
+    secret = "sk-or-v1-super-secret-key"
+    cipher = encrypt(secret)
+    assert cipher != secret
+    assert decrypt(cipher) == secret
 
 
-def test_token_defaults_empty():
-    s = Settings()
-    assert s.discord_token == ""
+def test_redact():
+    assert redact("") == ""
+    assert redact("abcd") == "***"
+    assert redact("sk-or-v1-1234567890abcdef").startswith("sk-o")
 
 
-def test_normalize_database_url():
-    from rosy.config import normalize_database_url
-    # Railway sync Postgres URL -> asyncpg dialect
-    assert (
-        normalize_database_url("postgresql://u:p@h:5432/db")
-        == "postgresql+asyncpg://u:p@h:5432/db"
-    )
-    assert (
-        normalize_database_url("postgres://u:p@h:5432/db")
-        == "postgresql+asyncpg://u:p@h:5432/db"
-    )
-    assert (
-        normalize_database_url("postgresql+psycopg2://u:p@h/db")
-        == "postgresql+asyncpg://u:p@h/db"
-    )
-    # Already-async and SQLite URLs are unchanged
-    assert normalize_database_url("postgresql+asyncpg://u:p@h/db") == "postgresql+asyncpg://u:p@h/db"
-    assert normalize_database_url("sqlite+aiosqlite:///./x.db") == "sqlite+aiosqlite:///./x.db"
+def test_rate_limiter():
+    limiter = RateLimiter(default_rate_per_minute=2)
+    key = "user:1"
+    assert limiter.allow(key) is True
+    assert limiter.allow(key) is True
+    # bucket exhausted until refill
+    assert limiter.allow(key) is False

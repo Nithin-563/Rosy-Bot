@@ -1,43 +1,36 @@
 # Troubleshooting
 
-## Bot is online but doesn't reply to messages
-- **Missing Message Content Intent.** Enable it in the Developer Portal
-  (Bot → Privileged Gateway Intents → Message Content Intent), then re-invite
-  the bot.
-- **Command prefix conflict.** Rosy ignores anything starting with `!` as a
-  command. To chat, **mention** Rosy, **reply** to her, or say her name.
+## The bot doesn't come online
+- **Missing token**: confirm `ROS_DISCORD_TOKEN` is set. Check deploy logs for
+  a token-related error.
+- **Wrong gateway URL / corporate network**: some networks block Discord's
+  WebSocket gateway. Allow `gateway.discord.gg` and `discord.com`.
 
-## "All providers failed" / AI errors
-- Check `OPENROUTER_API_KEY` is set and valid.
-- Check the model name in `OPENROUTER_DEFAULT_MODEL`.
-- Check you have credits/allowance on OpenRouter.
-- Look at the logs (enable `LOG_LEVEL=DEBUG`) — provider errors are logged.
+## Slash commands don't appear
+- Wait a few seconds after startup for command registration.
+- Restart the bot. For instant registration in one server, set
+  `ROS_DEV_GUILD_IDS` to that guild's ID.
+- Make sure the bot has the `applications.commands` OAuth scope and permission
+  to create commands in the server.
 
-## Database connection errors
-- Ensure `DATABASE_URL` is the **async** form:
-  `postgresql+asyncpg://user:pass@host:5432/rosy`
-- Ensure the database is reachable from the host and migrations have run
-  (`alembic upgrade head`).
+## AI replies say "not configured"
+- Set the AI key: `ROS_OPENROUTER_API_KEY` (or another provider's key), then
+  restart.
+- If you set a per-guild provider in `/set_provider` without storing a key,
+  Rosy falls back to the default provider — check `ROS_DEFAULT_PROVIDER`.
 
-## "ENCRYPTION_KEY is not configured"
-- Set `ENCRYPTION_KEY` to a strong random string.
-- **Important:** if you change it later, previously stored encrypted
-  credentials cannot be decrypted. Generate once and keep it stable.
+## Memory/reminders don't persist across restarts
+- They're stored in PostgreSQL. Confirm `DATABASE_URL` is set and reachable.
+- If you didn't set `ROS_ENCRYPTION_KEY`, stored provider credentials are
+  encrypted with an ephemeral key and do **not** survive restarts — set a
+  stable key (see Deployment docs).
 
-## Music says "Provide a direct audio URL"
-- The optional `yt-dlp` extra is not installed, so search/YouTube lookup is
-  unavailable. Either `pip install yt-dlp` (add to the image) or play a direct
-  `.mp3`/audio URL.
-- `ffmpeg` must be present on the host (the Dockerfile installs it).
+## Music doesn't play
+- The `voice`/`yt-dlp` extra and `ffmpeg` must be installed. In the Docker
+  image they are bundled. Chat, games, and tools still work without them.
+- Make sure the bot has the **Connect** and **Speak** permissions.
 
-## Voice says "Voice/TTS is not configured"
-- Voice transport works (join/leave), but no TTS provider is wired by default.
-  Implement a `TTSProvider` and pass it to `VoiceManager`.
-
-## Redis of the whole project
-If something else is broken, enable debug logging and check the startup logs.
-Most failures are configuration (env vars), not code.
-
-## Getting help
-Open an issue on the repository with the **redacted** logs (never paste tokens
-or API keys).
+## Everything else
+- Enable verbose logs: `ROS_LOG_LEVEL=DEBUG`.
+- Check the **Deployments** logs. If you still need help, share the logs with
+  the platform (avoid posting bot tokens or API keys).
