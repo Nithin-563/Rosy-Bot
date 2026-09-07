@@ -1,26 +1,26 @@
 # Setting up the Discord application & bot
 
-Rosy is an **official Discord bot** using Discord's supported Bot API. Follow
+Rose is an **official Discord bot** using Discord's supported Bot API. Follow
 these steps to create it, get its token, and invite it to your server. **Do not
 automate a normal user account (self-bot)** — that violates Discord's ToS.
 
 ## 1. Create the application
 
 1. Go to <https://discord.com/developers/applications>.
-2. Click **New Application**, name it **Rosy**, and create it.
+2. Click **New Application**, name it **Rose**, and create it.
 
 ## 2. Create the bot
 
 1. Open your application → **Bot** tab (left sidebar).
 2. Click **Add Bot** → **Yes, do it!**.
 3. Under **Privileged Gateway Intents**, enable:
-   - **Message Content Intent** — required for Rosy to read messages.
+   - **Message Content Intent** — required for Rose to read messages.
    - **Server Members Intent** — required for member-based features.
    - (Voice State Intent is enabled by default.)
 4. Copy the **Token** (click **Reset** if not shown). This is your
    `ROS_DISCORD_TOKEN`. **Treat it as a secret — never commit it.**
 
-> Only enable the intents Rosy needs. The bot itself already requests only the
+> Only enable the intents Rose needs. The bot itself already requests only the
 > intents enabled in your env config (`ROS_ENABLE_*`), so keep the portal
 > settings aligned.
 
@@ -38,11 +38,11 @@ automate a normal user account (self-bot)** — that violates Discord's ToS.
      - `Connect`, `Speak` (voice/music — optional)
 3. Copy the generated **invite URL**.
 
-## 4. Invite Rosy
+## 4. Invite Rose
 
 1. Open the invite URL in a browser.
 2. Pick a server, and click **Authorize**.
-3. Rosy joins the server. Verify she appears in the member list.
+3. Rose joins the server. Verify she appears in the member list.
 
 ## 5. Configure the bot
 

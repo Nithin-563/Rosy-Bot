@@ -1,4 +1,4 @@
-"""Rosy entrypoint.
+"""Rose entrypoint.
 
 Usage:
     python -m rosy.main
@@ -67,7 +67,7 @@ def main() -> int:
         try:
             await bot.start(settings.discord_token)  # blocks while running
         except Exception as exc:  # noqa: BLE001 - top-level guard
-            logger.error("ROSY STARTUP FAILED: %s", exc)
+            logger.error("ROSE STARTUP FAILED: %s", exc)
             logger.error("Full error: %r", exc)
             return 1
         finally:

@@ -97,11 +97,15 @@ class CredentialStore:
             except ValueError:
                 logger.warning("Could not decrypt stored credential for guild=%s provider=%s", guild_id, provider)
                 return None
+            extra = {}
+            if provider == "openrouter":
+                extra = {"referer": self.settings.openrouter_referer, "title": self.settings.openrouter_title}
             return ProviderConfig(
                 provider=provider,
                 api_key=key,
-                base_url=row.base_url or "",
-                model=model or row.default_model,
+                base_url=(row.base_url or self.settings.openrouter_base_url) if provider == "openrouter" else (row.base_url or ""),
+                model=row.default_model,
+                extra=extra,
             )
 
 
@@ -146,29 +150,49 @@ class AIManager:
         except AIProviderError:
             raise
         prov = self.registry.create(cfg.provider, cfg, self.http)
+        request_kwargs = {
+            "temperature": temperature,
+            "tools": tools,
+            "max_tokens": max(256, min(self.settings.max_output_tokens, 4096)),
+        }
         try:
-            result = await prov.chat(messages, temperature=temperature, tools=tools)
+            result = await prov.chat(messages, **request_kwargs)
         except AIProviderError as exc:
-            # Some OpenRouter models advertise chat support but reject native tool
-            # schemas. Retry once without tools so ordinary conversation still works.
-            if tools and self.settings.tool_calls_enabled and "400" in str(exc):
+            # Some OpenRouter models reject native tools. Retry the same model without
+            # tools before considering any provider fallback.
+            if tools and self.settings.tool_calls_enabled and getattr(exc, "status_code", None) == 400:
                 logger.warning("Provider %s rejected tool payload; retrying without tools", provider)
                 try:
-                    result = await prov.chat(messages, temperature=temperature, tools=None)
+                    result = await prov.chat(messages, temperature=temperature, tools=None, max_tokens=request_kwargs["max_tokens"])
                 except AIProviderError:
                     result = None
                 if result is not None:
                     await self._record_usage(result, guild_id)
                     return result
+
+            # OpenRouter may reject a paid/large-output request with HTTP 402. Retry
+            # using the configured free router, with a deliberately small output cap.
+            if provider == "openrouter" and getattr(exc, "status_code", None) == 402:
+                free_model = (self.settings.openrouter_free_model or "openrouter/free").strip()
+                if free_model and free_model != cfg.model:
+                    logger.warning("OpenRouter request lacked affordable capacity; retrying with %s", free_model)
+                    try:
+                        free_cfg = await self.credentials.resolve("openrouter", guild_id, free_model)
+                        free_prov = self.registry.create(free_cfg.provider, free_cfg, self.http)
+                        result = await free_prov.chat(
+                            messages, temperature=temperature,
+                            tools=None, max_tokens=min(request_kwargs["max_tokens"], 1024)
+                        )
+                        await self._record_usage(result, guild_id)
+                        return result
+                    except AIProviderError as free_exc:
+                        logger.warning("OpenRouter free fallback failed: %s", free_exc)
+
             # fallback: try the default provider if a per-guild one failed
             if provider != self.settings.default_provider and self.settings.default_provider:
                 return await self.chat(
-                    messages,
-                    provider=self.settings.default_provider,
-                    model=model,
-                    guild_id=None,
-                    temperature=temperature,
-                    tools=None,
+                    messages, provider=self.settings.default_provider, model=model,
+                    guild_id=None, temperature=temperature, tools=None
                 )
             raise
         await self._record_usage(result, guild_id)

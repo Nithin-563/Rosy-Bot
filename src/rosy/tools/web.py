@@ -49,7 +49,7 @@ class WebSearchTool(BaseTool):
             raise ValueError("Invalid search query.")
         max_results = max(1, min(int(max_results), 8))
         url = "https://html.duckduckgo.com/html/?q=" + quote_plus(query)
-        response = await self.http.get(url, follow_redirects=False, headers={"User-Agent": "Rosy/1.0"})
+        response = await self.http.get(url, follow_redirects=False, headers={"User-Agent": "Rose/1.0"})
         response.raise_for_status()
         html = response.text
         blocks = re.findall(r'(?is)<div[^>]+class="result__body".*?</div>\s*</div>', html)
@@ -86,7 +86,7 @@ class WebFetchTool(BaseTool):
     async def execute(self, url: str = "", max_chars: int = 6000, **kwargs) -> str:
         _validate_public_url(url)
         max_chars = max(500, min(int(max_chars), 12000))
-        response = await self.http.get(url, follow_redirects=False, headers={"User-Agent": "Rosy/1.0"})
+        response = await self.http.get(url, follow_redirects=False, headers={"User-Agent": "Rose/1.0"})
         response.raise_for_status()
         text = _html_to_text(response.text)
         return text[:max_chars]

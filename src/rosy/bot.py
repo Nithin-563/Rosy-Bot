@@ -1,4 +1,4 @@
-"""RosyBot — the application container.
+"""RoseBot — the application container.
 
 Wires configuration, database, AI manager, memory, conversation engine,
 reminders, moderation, settings, tools and cogs together, and exposes them to
@@ -39,7 +39,7 @@ def _redact_db_url(url) -> str:
     return s
 
 
-class RosyBot(commands.Bot):
+class RoseBot(commands.Bot):
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         intents = self._build_intents()
@@ -62,7 +62,7 @@ class RosyBot(commands.Bot):
         self._stats = {"commands": 0, "messages": 0, "started": time.monotonic()}
         self.ready_event = None
     @staticmethod
-    def _prefix(bot: RosyBot, message: discord.Message) -> list[str]:
+    def _prefix(bot: RoseBot, message: discord.Message) -> list[str]:
         return [f"<@{bot.user.id}> ", f"<@!{bot.user.id}> "]
 
     def _build_intents(self) -> discord.Intents:
@@ -91,7 +91,7 @@ class RosyBot(commands.Bot):
         self.conversation.tools = self.tools
         await self.load_cogs()
         await self.reminders.start(self.fire_reminder)
-        logger.info("Rosy ready to sync commands.")
+        logger.info("Rose ready to sync commands.")
 
     async def sync_commands(self) -> None:
         """Synchronize slash commands globally and to current guilds for fast visibility."""
@@ -197,5 +197,8 @@ class RosyBot(commands.Bot):
         logger.info("Command error in %s: %s", ctx.command, message)
 
 
-def build_bot(settings: Settings | None = None) -> RosyBot:
-    return RosyBot(settings)
+def build_bot(settings: Settings | None = None) -> RoseBot:
+    return RoseBot(settings)
+
+# Backwards-compatible internal alias; the user-facing product name is Rose.
+RosyBot = RoseBot

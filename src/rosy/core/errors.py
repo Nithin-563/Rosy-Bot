@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 class RosyError(Exception):
-    """Base class for all Rosy errors."""
+    """Base class for all Rose errors."""
 
 
 class ConfigError(RosyError):
@@ -56,20 +56,20 @@ def safe_user_message(exc: Exception) -> str:
     if isinstance(exc, PermissionDenied):
         return "You do not have permission to do that."
     if isinstance(exc, ProviderRateLimited):
-        return "Rosy's AI service is busy right now. Try again in a moment."
+        return "Rose's AI service is busy right now. Try again in a moment."
     if isinstance(exc, ProviderUnavailable):
-        return "Rosy couldn't reach the AI service. Try again shortly."
+        return "Rose couldn't reach the AI service. Try again shortly."
     if isinstance(exc, ProviderAuthError):
         return "The AI service is not configured correctly. Ask an admin."
     if isinstance(exc, AIProviderError):
-        msg = str(exc)
-        # Show a helpful hint without leaking raw response bodies/secrets.
-        if "400" in msg and "rejected" in msg:
-            return "Rosy's AI model was rejected. Check that the model name is valid, or ask an admin."
-        return "Rosy's AI service returned an error. Try again shortly."
+        if getattr(exc, "status_code", None) == 402 or "402" in str(exc):
+            return "Rose is out of available OpenRouter credits for that model. I tried the safe fallback too; please configure a free OpenRouter model or add credits."
+        if getattr(exc, "status_code", None) == 400 or "400" in str(exc):
+            return "Rose's AI request was rejected. I removed unsupported options where possible; please check the selected model if it continues."
+        return "Rose's AI service is temporarily unavailable. Please try again shortly."
     if isinstance(exc, RateLimitExceeded):
         return "You're sending messages too quickly. Please slow down."
     if isinstance(exc, RosyError):
         return str(exc)
     # Unknown exceptions: never leak stack traces to users.
-    return "Something went wrong on my end. Please try again."
+    return "Rose couldn't complete that request. Please try again."

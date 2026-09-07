@@ -18,7 +18,7 @@ class Memory(commands.Cog):
             return MemoryScope.dm, None, interaction.user.id
         return MemoryScope.user_in_guild, interaction.guild.id, interaction.user.id
 
-    @app_commands.command(name="remember", description="Ask Rosy to remember something.")
+    @app_commands.command(name="remember", description="Ask Rose to remember something.")
     async def remember(self, interaction: discord.Interaction, content: str) -> None:
         scope, guild_id, user_id = self._scopes(interaction)
         await self.bot.memory.remember(
@@ -26,7 +26,7 @@ class Memory(commands.Cog):
         )
         await interaction.response.send_message("I've remembered that. 🧠", ephemeral=True)
 
-    @app_commands.command(name="forget", description="Ask Rosy to forget something specific.")
+    @app_commands.command(name="forget", description="Ask Rose to forget something specific.")
     async def forget(self, interaction: discord.Interaction, content: str) -> None:
         scope, guild_id, user_id = self._scopes(interaction)
         ok = await self.bot.memory.forget(content, scope=scope, guild_id=guild_id, user_id=user_id)
@@ -35,7 +35,7 @@ class Memory(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="memories", description="Show what Rosy remembers for you.")
+    @app_commands.command(name="memories", description="Show what Rose remembers for you.")
     async def show(self, interaction: discord.Interaction) -> None:
         scope, guild_id, user_id = self._scopes(interaction)
         memories = await self.bot.memory.recall(scope=scope, guild_id=guild_id, user_id=user_id, limit=25)

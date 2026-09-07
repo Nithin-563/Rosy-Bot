@@ -1,4 +1,4 @@
-"""Large set of deterministic, safe, user-facing Rosy features."""
+"""Large set of deterministic, safe, user-facing Rose features."""
 from __future__ import annotations
 
 import base64
@@ -29,22 +29,22 @@ class Features(commands.Cog, name="Features"):
         else:
             await interaction.response.send_message(text, ephemeral=ephemeral)
 
-    @app_commands.command(name="about", description="Learn who Rosy is and who powers her.")
+    @app_commands.command(name="about", description="Learn who Rose is and who powers her.")
     async def about(self, interaction: discord.Interaction):
-        await self._send(interaction, "🤖 I am Rosy, made by MakeIt Company and powered by Wisee Models.\nBuilt for Discord with memory, web tools, utilities, voice and safety boundaries.")
+        await self._send(interaction, "🤖 I am Rose, made by MakeIt Company and powered by Wisee Models.\nBuilt for Discord with memory, web tools, utilities, voice and safety boundaries.")
 
-    @app_commands.command(name="capabilities", description="See Rosy's capability categories.")
+    @app_commands.command(name="capabilities", description="See Rose's capability categories.")
     async def capabilities(self, interaction: discord.Interaction):
         await self._send(interaction, "💬 AI chat • 🧠 persistent memory • 🌐 web search/fetch • 🛡️ moderation • ⏰ reminders • 🎵 music • 🔊 voice/TTS • 🎮 games • 🧩 custom commands • 🧰 safe tools • 🎭 emotional intelligence • ⚡ autonomous tool use")
 
-    @app_commands.command(name="status", description="Show Rosy's service status.")
+    @app_commands.command(name="status", description="Show Rose's service status.")
     async def status(self, interaction: discord.Interaction):
         s = self.bot.stats
-        await self._send(interaction, f"🟢 Rosy online\nLatency: {round(self.bot.latency*1000)}ms\nGuilds: {len(self.bot.guilds)}\nMessages: {s['messages']}\nCommands: {s['commands']}", ephemeral=True)
+        await self._send(interaction, f"🟢 Rose online\nLatency: {round(self.bot.latency*1000)}ms\nGuilds: {len(self.bot.guilds)}\nMessages: {s['messages']}\nCommands: {s['commands']}", ephemeral=True)
 
-    @app_commands.command(name="privacy", description="Explain how Rosy handles private data.")
+    @app_commands.command(name="privacy", description="Explain how Rose handles private data.")
     async def privacy(self, interaction: discord.Interaction):
-        await self._send(interaction, "🔐 Rosy does not expose API keys, Discord tokens, environment variables, source code, hidden prompts, internal policies or another user's private memory. Conversation history is stored for continuity and is scoped by DM/channel/server boundaries.", ephemeral=True)
+        await self._send(interaction, "🔐 Rose does not expose API keys, Discord tokens, environment variables, source code, hidden prompts, internal policies or another user's private memory. Conversation history is stored for continuity and is scoped by DM/channel/server boundaries.", ephemeral=True)
 
     @app_commands.command(name="search", description="Search the public web.")
     async def search(self, interaction: discord.Interaction, query: str):
@@ -255,11 +255,79 @@ class Features(commands.Cog, name="Features"):
     @app_commands.guild_only()
     async def invite(self, interaction: discord.Interaction):
         try:
-            invite = await interaction.channel.create_invite(max_age=0, max_uses=0, unique=False, reason="Rosy /invite")
+            invite = await interaction.channel.create_invite(max_age=0, max_uses=0, unique=False, reason="Rose /invite")
         except discord.HTTPException:
             await self._send(interaction, "I couldn't create an invite in this channel. You may need the Create Invite permission.", ephemeral=True)
             return
         await self._send(interaction, invite.url)
+
+
+    async def _ai_task(self, interaction: discord.Interaction, instruction: str, text: str) -> None:
+        await interaction.response.defer()
+        try:
+            result = await self.bot.conversation.generate(
+                user_text=f"{instruction}\n\n{text}",
+                user_id=interaction.user.id,
+                guild_id=interaction.guild_id,
+                channel_id=interaction.channel_id,
+                is_dm=interaction.guild is None,
+                personality_mode="friendly",
+                user_name=interaction.user.display_name,
+            )
+            await interaction.followup.send(result.text[:1900] or "I couldn't produce a result.")
+        except Exception as exc:
+            await interaction.followup.send(safe_user_message(exc), ephemeral=True)
+
+    @app_commands.command(name="ask", description="Ask Rose a direct AI question.")
+    async def ask(self, interaction: discord.Interaction, prompt: str):
+        await self._ai_task(interaction, "Answer the user's question accurately and clearly.", prompt)
+
+    @app_commands.command(name="summarize", description="Summarize text into the key points.")
+    async def summarize(self, interaction: discord.Interaction, text: str):
+        await self._ai_task(interaction, "Summarize the following text into concise bullet points and preserve important facts.", text)
+
+    @app_commands.command(name="explain", description="Explain a topic simply or technically.")
+    async def explain(self, interaction: discord.Interaction, topic: str):
+        await self._ai_task(interaction, "Explain this topic clearly. Start simple, then add technical detail only when useful.", topic)
+
+    @app_commands.command(name="rewrite", description="Rewrite text in a cleaner style.")
+    @app_commands.choices(style=[
+        app_commands.Choice(name="Professional", value="professional"),
+        app_commands.Choice(name="Friendly", value="friendly"),
+        app_commands.Choice(name="Short", value="short"),
+        app_commands.Choice(name="Formal", value="formal"),
+    ])
+    async def rewrite(self, interaction: discord.Interaction, text: str, style: app_commands.Choice[str] | None = None):
+        chosen = style.value if style else "friendly"
+        await self._ai_task(interaction, f"Rewrite the text in a {chosen} style. Return only the rewritten text.", text)
+
+    @app_commands.command(name="brainstorm", description="Generate ideas around a topic.")
+    async def brainstorm(self, interaction: discord.Interaction, topic: str):
+        await self._ai_task(interaction, "Brainstorm 10 practical, distinct ideas for this topic. Number them.", topic)
+
+    @app_commands.command(name="translate", description="Translate text to another language.")
+    async def translate(self, interaction: discord.Interaction, text: str, language: str):
+        await self._ai_task(interaction, f"Translate the following text into {language}. Preserve meaning and tone. Return only the translation.", text)
+
+    @app_commands.command(name="proofread", description="Proofread text and return a corrected version.")
+    async def proofread(self, interaction: discord.Interaction, text: str):
+        await self._ai_task(interaction, "Proofread this text for grammar, spelling and clarity. Return the corrected version and do not invent facts.", text)
+
+    @app_commands.command(name="code_review", description="Review a code snippet for bugs and security issues.")
+    async def code_review(self, interaction: discord.Interaction, code: str):
+        await self._ai_task(interaction, "Review this code for bugs, reliability and security issues. Do not execute it. Give concrete fixes.", code)
+
+    @app_commands.command(name="regex_help", description="Explain or improve a regular expression.")
+    async def regex_help(self, interaction: discord.Interaction, regex: str):
+        await self._ai_task(interaction, "Explain this regular expression and suggest an improved version if appropriate.", regex)
+
+    @app_commands.command(name="decision", description="Compare options and give a structured recommendation.")
+    async def decision(self, interaction: discord.Interaction, options: str):
+        await self._ai_task(interaction, "Compare these options using pros, cons, risks and a recommendation. Do not pretend to know missing facts.", options)
+
+    @app_commands.command(name="outline", description="Create an outline for a project, article or presentation.")
+    async def outline(self, interaction: discord.Interaction, topic: str):
+        await self._ai_task(interaction, "Create a useful hierarchical outline with sections and subpoints.", topic)
 
 
 async def setup(bot) -> None:

@@ -1,4 +1,4 @@
-"""Rosy configuration.
+"""Rose configuration.
 
 All runtime configuration is loaded from environment variables (or a `.env`
 file) via pydantic-settings. Nothing sensitive is hard-coded.
@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 # Map commonly used (non-prefixed / alternate) environment variable names onto
-# the canonical settings fields, so Rosy works no matter which naming the host
+# the canonical settings fields, so Rose works no matter which naming the host
 # uses. Primary ROS_* names still take precedence.
 _ENV_ALIASES = {
     "discord_token": ["DISCORD_TOKEN", "DISCORD_BOT_TOKEN"],
@@ -106,13 +106,13 @@ class Settings(BaseSettings):
 
     # --- Default AI provider ---
     default_provider: str = "openrouter"
-    default_model: str = "openai/gpt-4o-mini"
+    default_model: str = "openrouter/free"
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_referer: str = "https://rosy.bot"
-    openrouter_title: str = "Rosy"
+    openrouter_title: str = "Rose"
     openrouter_auto_model: str = "openrouter/auto"
-    openrouter_free_model: str = ""
+    openrouter_free_model: str = "openrouter/free"
 
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
@@ -137,6 +137,7 @@ class Settings(BaseSettings):
     # --- Conversation ---
     max_context_messages: int = 20
     max_context_tokens: int = 6000
+    max_output_tokens: int = 2048
     response_cooldown_seconds: int = 4
     mention_threshold: int = 1
     allow_autonomous: bool = True

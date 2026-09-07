@@ -77,11 +77,11 @@ class Provider(abc.ABC):
 
     def _handle_status(self, resp: httpx.Response) -> None:
         if resp.status_code == 429:
-            raise ProviderRateLimited(f"{self.name} rate limited", provider=self.name)
+            raise ProviderRateLimited(f"{self.name} rate limited", provider=self.name, status_code=429)
         if resp.status_code in (401, 403):
-            raise ProviderAuthError(f"{self.name} auth error", provider=self.name)
+            raise ProviderAuthError(f"{self.name} auth error", provider=self.name, status_code=resp.status_code)
         if resp.status_code >= 500:
-            raise ProviderUnavailable(f"{self.name} HTTP {resp.status_code}", provider=self.name)
+            raise ProviderUnavailable(f"{self.name} HTTP {resp.status_code}", provider=self.name, status_code=resp.status_code)
         if 400 <= resp.status_code < 500:
             # Keep provider details in logs, but don't surface response bodies to the user.
             detail = (resp.text or "")[:500]
@@ -90,6 +90,7 @@ class Provider(abc.ABC):
             raise AIProviderError(
                 f"{self.name} rejected the request (HTTP {resp.status_code}).",
                 provider=self.name,
+                status_code=resp.status_code,
             )
         resp.raise_for_status()
 
@@ -97,14 +98,14 @@ class Provider(abc.ABC):
         try:
             resp = await self.http.post(url, json=payload, headers=headers)
         except httpx.TimeoutException as exc:
-            raise ProviderUnavailable(f"{self.name} timed out", provider=self.name) from exc
+            raise ProviderUnavailable(f"{self.name} timed out", provider=self.name, status_code=None) from exc
         except httpx.HTTPError as exc:
-            raise ProviderUnavailable(f"{self.name} network error", provider=self.name) from exc
+            raise ProviderUnavailable(f"{self.name} network error", provider=self.name, status_code=None) from exc
         self._handle_status(resp)
         try:
             return resp.json()
         except ValueError as exc:
-            raise ProviderUnavailable(f"{self.name}: non-JSON response", provider=self.name) from exc
+            raise ProviderUnavailable(f"{self.name}: non-JSON response", provider=self.name, status_code=resp.status_code) from exc
 
 
 class OpenAICompatProvider(Provider):

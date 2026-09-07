@@ -73,6 +73,24 @@ class ConversationEngine:
         rows.reverse()
         return [ChatMessage(role=r.role, content=r.content) for r in rows if r.role in {"user", "assistant"}]
 
+    async def persist_message(self, *, guild_id: int | None, channel_id: int | None, user_id: int | None, is_dm: bool, role: str, content: str) -> None:
+        """Persist one message without requiring an AI response.
+
+        This method is intentionally idempotent at the application level: callers may
+        safely use it for every inbound/outbound message. Content is bounded so a
+        malformed/huge Discord payload cannot grow the database without limit.
+        """
+        if self.db is None or channel_id is None or not content:
+            return
+        if role not in {"user", "assistant", "system", "tool"}:
+            raise ValueError("Unsupported message role")
+        conv_id = await self._ensure_conversation(guild_id, channel_id, user_id, is_dm)
+        if conv_id is None:
+            return
+        async with self.db.session() as session:
+            session.add(Message(conversation_id=conv_id, role=role, content=content[:12000]))
+            await session.commit()
+
     async def persist_turn(self, *, guild_id: int | None, channel_id: int | None, user_id: int | None, is_dm: bool, user_text: str, assistant_text: str) -> None:
         if self.db is None or channel_id is None:
             return

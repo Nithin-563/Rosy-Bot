@@ -28,7 +28,7 @@ def _derive_key(raw: str, salt: str) -> bytes:
 def init_encryption(secret: str, salt: str) -> None:
     """Initialise the global encryptor. Call once at startup.
 
-    Provide a stable secret (env: ROSY_ENCRYPTION_KEY) so stored secrets
+    Provide a stable secret (env: ROSE_ENCRYPTION_KEY) so stored secrets
     survive restarts. If empty, an ephemeral random key is used.
     """
     global _fernet
