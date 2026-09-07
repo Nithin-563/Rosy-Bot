@@ -1,46 +1,45 @@
 # Deployment
 
-## Railway (recommended)
+Rosy is containerized and ready for **Railway**. It runs from environment
+variables only — nothing is hard-coded.
 
-1. Push this repo to a GitHub repository.
-2. In Railway, **New Project → Deploy from GitHub**, select the repo.
-3. Railway reads `railway.json` and the `Dockerfile` automatically.
-4. Add a **PostgreSQL** service (New → Database → PostgreSQL) to the project.
-5. Go to the deployed service → **Variables** and add:
-   - `ROS_DISCORD_TOKEN` — your bot token
-   - `ROS_OPENROUTER_API_KEY` — your OpenRouter key
-   - `ROS_ENCRYPTION_KEY` — a stable key (optional but recommended)
-6. **Deploy**. Railway injects `DATABASE_URL` automatically.
-7. Railway runs the health check against port `8080` (the bot serves `/`).
+## Deploying to Railway
 
-Slash commands register on startup. Check **Deployments** logs for `Logged in as
-Rosy` to confirm a clean start.
+1. **Push the repo to GitHub.**
+2. In [Railway](https://railway.app), click **New Project → Deploy from GitHub
+   repo** and select this repository.
+3. Add a **PostgreSQL** plugin:
+   - Railway → your project → **New → Database → PostgreSQL**.
+   - The plugin provides a `DATABASE_URL` connection string.
+4. Under **Variables**, set at minimum:
+   - `DISCORD_TOKEN` — your bot token
+   - `OPENROUTER_API_KEY` — your OpenRouter key
+   - `ENCRYPTION_KEY` — a strong random string
+     (`python3 -c "import secrets; print(secrets.token_urlsafe(48))"`)
+   - `DATABASE_URL` — the Railway Postgres connection string. You can paste it
+     **exactly as Railway provides it** (e.g. `postgresql://user:pass@host:5432/rosy`);
+     Rosy auto-normalizes the sync `postgresql://` URL to the async `asyncpg`
+     driver, so you don't need to edit it manually.
+   - `LOG_LEVEL=INFO`
+5. Railway builds the `Dockerfile` and runs:
+   `alembic upgrade head && python -m rosy.main`
+   which applies migrations and starts the bot.
 
-## Other hosts
+### Ports
+Rosy is a WebSocket/API *client*; it does not expose an HTTP server, so no
+public port mapping is required on Railway.
 
-Because the project reads everything from env vars and runs via
-`python -m rosy.main`, moving it is trivial:
+## Moving to another host
+Because all configuration is environmental, moving hosts is trivial:
+- Point `DATABASE_URL` at any PostgreSQL instance.
+- Provide the same environment variables.
+- The Dockerfile works on any container platform (Fly.io, Render, ECS, …).
 
-- **Docker / Fly.io / Render / Heroku**: use the same `Dockerfile` (or the
-  `CMD ["python", "-m", "rosy.main"]`), provide the same env vars and a
-  PostgreSQL instance.
-- **Systemd / bare metal**: `pip install .` then run
-  `ROS_DISCORD_TOKEN=... python -m rosy.main`.
-
-## Database migrations on a fresh host
-
-On first start the bot auto-creates all tables (`create_all`). For formal
-migrations run:
-
+## Local development
 ```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env        # fill in keys
 alembic upgrade head
+rosy
 ```
-
-## Generating an encryption key
-
-```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
-Set the output as `ROS_ENCRYPTION_KEY`. Keep it stable; changing it invalidates
-previously stored provider credentials.

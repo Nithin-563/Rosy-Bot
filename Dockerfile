@@ -1,30 +1,33 @@
-# Rosy - production Docker image (Railway-ready)
+# Rosy — production image for Railway (or any container host).
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# System deps: ffmpeg for music/voice; git for yt-dlp updates.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg git curl \
+# System deps: ffmpeg for music/voice, build tools for asyncpg/cryptography.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        gcc \
+        build-essential \
+        libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install Python deps first (layer caching).
+# Install dependencies first for better layer caching.
 COPY pyproject.toml README.md ./
-COPY src ./src
-RUN pip install --upgrade pip \
-    && pip install ".[voice,web,pdf]" \
-    || pip install .
+COPY rosy ./rosy
+COPY migrations ./migrations
+COPY alembic.ini ./
 
-# App files.
-COPY . .
+RUN pip install --no-cache-dir . 
 
-# Non-root user for safety.
-RUN useradd --create-home rosy && chown -R rosy:rosy /app
-USER rosy
+# Health check for Railway.
+COPY docker_healthcheck.py .
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python docker_healthcheck.py
 
-EXPOSE 8080
-CMD ["python", "-m", "rosy.main"]
+# Run migrations then start the bot.
+CMD ["sh", "-c", "alembic upgrade head && python -m rosy.main"]

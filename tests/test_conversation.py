@@ -1,62 +1,56 @@
-"""Decision engine and context builder tests."""
-
+"""Context builder + response decision tests."""
 from __future__ import annotations
 
-from rosy.config import Settings
-from rosy.conversation.decision import DecisionEngine, DecisionInput
-from rosy.conversation.context import Context, ContextBuilder
-from rosy.ai.base import ChatMessage
+from datetime import datetime, timedelta, timezone
+
+from rosy.ai.base import Message
+from rosy.conversation.context import ContextBuilder
+from rosy.conversation.decision import DecisionInput, ResponseDecider
 
 
-def _decision(**kw):
-    base = dict(bot_id=1, author_id=2, content="hi", is_dm=False)
-    base.update(kw)
-    return DecisionEngine().should_respond(DecisionInput(**base))
-
-
-def test_never_respond_to_bots():
-    assert _decision(is_bot=True).should is False
-
-
-def test_always_respond_dm():
-    assert _decision(is_dm=True).should is True
-
-
-def test_mention_triggers():
-    assert _decision(mentions_me=True).should is True
-
-
-def test_name_usage_triggers():
-    assert _decision(content="rosy, what's up").should is True
-
-
-def test_autonomous_disabled():
-    assert _decision(autonomous_enabled=False).should is False
-
-
-def test_cooldown_blocks_autonomous():
-    d = _decision(last_response_at=1e18)
-    assert d.reason == "cooldown"
-
-
-def test_autonomous_not_triggered_by_default():
-    # probability 0 -> never autonomous unless explicitly mentioned
-    d = _decision(content="just talking about weather", autonomous_probability=0.0)
-    assert d.should is False
-
-
-def test_context_builder_system_and_messages():
-    settings = Settings(_env_file=None, discord_token="x", database_url="sqlite+aiosqlite://")
-    cb = ContextBuilder(settings)
-    ctx = Context(
-        guild_name="Test Guild",
-        user_name="Alice",
-        personality_mode="friendly",
-        history=[ChatMessage(role="user", content="hi")],
-        memories=[],
+def test_context_builds_system_and_history():
+    cb = ContextBuilder()
+    ctx = cb.build(
+        mode="technical",
+        recent_messages=[Message(role="user", content="hello"), Message(role="assistant", content="hi")],
+        memories=["user likes rust"],
     )
-    msgs = cb.build_messages(ctx)
-    assert msgs[0].role == "system"
-    assert "Test Guild" in msgs[0].content
-    assert "Alice" in msgs[0].content
-    assert msgs[-1].content == "hi"
+    assert ctx.messages[0].role == "system"
+    roles = [m.role for m in ctx.messages]
+    assert "user" in roles and "assistant" in roles
+    assert any("rust" in m.content for m in ctx.messages)
+
+
+def test_context_respects_budget():
+    cb = ContextBuilder()
+    many = [Message(role="user", content="x" * 500) for _ in range(50)]
+    ctx = cb.build(recent_messages=many)
+    # Budget is bounded well below all 50 messages.
+    assert ctx.estimated_tokens() <= 6000 + 100
+
+
+def test_decision_triggers():
+    d = ResponseDecider()
+    assert d.decide(DecisionInput(mentions_bot=True)).should_reply is True
+    assert d.decide(DecisionInput(is_dm=True)).should_reply is True
+    assert d.decide(DecisionInput(is_reply_to_bot=True)).should_reply is True
+    assert d.decide(DecisionInput(content="hey Rosy how are you")).should_reply is True
+
+
+def test_decision_silence():
+    d = ResponseDecider()
+    assert d.decide(DecisionInput(content="hello there")).should_reply is False
+    assert d.decide(DecisionInput(content="hi", autonomous=False)).should_reply is False
+    assert d.decide(DecisionInput(rate_limited=True, is_dm=True)).should_reply is False
+    assert d.decide(DecisionInput(channel_ai_enabled=False, is_dm=True)).should_reply is False
+
+
+def test_decision_cooldown():
+    d = ResponseDecider()
+    assert d.decide(DecisionInput(content="hi", autonomous=True, cooldown_active=True)).should_reply is False
+
+
+def test_decision_autonomous_recent():
+    d = ResponseDecider()
+    recent = datetime.now(timezone.utc) - timedelta(seconds=30)
+    assert d.decide(DecisionInput(content="how's it going", autonomous=True, last_participation=recent)).should_reply is True
