@@ -29,7 +29,10 @@ class GuildSettingsService:
 
     async def get_settings(self, guild_id: int, default: GuildSettings | None = None) -> GuildSettings:
         async with self.db.session() as session:
-            await self.ensure_guild(guild_id)
+            guild = await session.get(Guild, guild_id)
+            if guild is None:
+                session.add(Guild(id=guild_id, name=""))
+                await session.flush()
             res = await session.execute(select(GuildSettings).where(GuildSettings.guild_id == guild_id))
             gs = res.scalar_one_or_none()
             if gs is None:

@@ -26,8 +26,9 @@ class ToolSpec:
     name: str
     description: str
     parameters: dict[str, Any]  # JSON-schema-ish
-    required_permission: str = "use_tools"  # coarse permission bucket
+    required_permission: str = "ai_tools"  # coarse permission bucket
     timeout_seconds: float = 15.0
+    risk_level: str = "safe"  # safe | confirmation | privileged
     handler: Callable[..., Any] | None = None
     async_handler: Callable[..., Coroutine[Any, Any, Any]] | None = None
 
@@ -86,8 +87,15 @@ class ToolRegistry:
 
     async def run(self, name: str, arguments: dict[str, Any], *, permission: str = "default_tools") -> str:
         spec = self.get(name)
+        if spec.risk_level != "safe" and permission == "ai_tools":
+            raise PermissionError(f"Tool '{name}' requires explicit application approval.")
         if spec.required_permission and permission != spec.required_permission:
             raise PermissionError(f"Missing permission '{spec.required_permission}' for tool '{name}'")
+        if not isinstance(arguments, dict):
+            raise ToolError(f"Tool '{name}' arguments must be an object.")
+        unknown = set(arguments) - set(spec.parameters)
+        if unknown:
+            raise ToolError(f"Tool '{name}' received unsupported arguments.")
         handler = self._handlers.get(name)
         if handler is None:
             raise ToolError(f"Tool '{name}' has no handler.")

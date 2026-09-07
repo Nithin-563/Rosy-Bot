@@ -1,40 +1,32 @@
-"""Help cog: overview of Rose's commands and capabilities."""
-
+"""Dynamic help generated from the live Discord command tree."""
 from __future__ import annotations
-
 import discord
 from discord import app_commands
 from discord.ext import commands
-
 
 class Help(commands.Cog, name="Help"):
     def __init__(self, bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="help", description="Show what Rose can do.")
+    @app_commands.command(name="help", description="Show Rosy's live command list.")
     async def help(self, interaction: discord.Interaction) -> None:
-        embed = discord.Embed(
-            title="Rose",
-            description="A friendly AI girl for Discord. Chat, remember, moderate, remind, and play.",
-            color=discord.Color.blurple(),
-        )
-        groups = {
-            "💬 Chat": ["/chat <prompt>", "Mention @Rose", "Reply to Rose"],
-            "🧠 Memory": ["/remember <thing>", "/forget <thing>", "/memories", "/clear_memories"],
-            "⚙️ Admin": ["/config", "/set_provider", "/set_model", "/set_personality", "/set_autonomous"],
-            "🛡️ Moderation": ["/warn", "/timeout", "/kick", "/ban", "/mod_history"],
-            "⏰ Reminders": ["/remind <30m> <msg>", "/reminders", "/cancel_reminder <id>"],
-            "🎮 Games": ["/8ball <q>", "/dice 2d6", "/trivia", "/guess"],
-            "🎵 Music": ["/play <song>", "/pause", "/resume", "/skip", "/stop", "/queue"],
-            "🔊 Voice": ["/join", "/leave"],
-            "🧩 Custom": ["/add_command", "/remove_command"],
-            "🎉 Fun": ["/echo", "/insult", "/stats", "/ping"],
-        }
-        for name, cmds in groups.items():
-            embed.add_field(name=name, value="\n".join(cmds), inline=False)
-        embed.set_footer(text="Set your provider/model under /config")
-        await interaction.response.send_message(embed=embed, ephemeral=False)
-
+        commands_list = sorted(self.bot.tree.get_commands(), key=lambda c: c.name)
+        lines = [f"`/{c.name}` — {c.description}" for c in commands_list]
+        chunks = []
+        current = ""
+        for line in lines:
+            if len(current) + len(line) + 1 > 1000:
+                chunks.append(current)
+                current = line
+            else:
+                current += ("\n" if current else "") + line
+        if current:
+            chunks.append(current)
+        embed = discord.Embed(title="Rosy • Commands", description="Live commands registered with Discord.", color=discord.Color.blurple())
+        for i, chunk in enumerate(chunks[:25], 1):
+            embed.add_field(name=f"Commands {i}", value=chunk, inline=False)
+        embed.set_footer(text="Powered by Wisee Models • MakeIt Company")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 async def setup(bot) -> None:
     await bot.add_cog(Help(bot))

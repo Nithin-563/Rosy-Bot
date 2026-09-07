@@ -17,13 +17,13 @@ class Admin(commands.Cog, name="Admin"):
     def __init__(self, bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="config", description="Show Rose's configuration for this server.")
+    @app_commands.command(name="config", description="Show Rosy's configuration for this server.")
     @app_commands.default_permissions(manage_guild=True)
     async def config(self, interaction: discord.Interaction) -> None:
         gs = await self.bot.guild_settings.get_settings(interaction.guild_id)
         embed = discord.Embed(title="Server configuration", color=discord.Color.blurple())
-        embed.add_field(name="AI provider", value=gs.ai_provider or "default")
-        embed.add_field(name="AI model", value=gs.ai_model or "default")
+        embed.add_field(name="AI platform", value="Wisee Models")
+        embed.add_field(name="AI configuration", value="Managed by server settings")
         embed.add_field(name="Personality", value=gs.personality_mode)
         embed.add_field(name="Autonomous replies", value="on" if gs.autonomous_enabled else "off")
         embed.add_field(name="Memory", value="on" if gs.memory_enabled else "off")
@@ -46,9 +46,9 @@ class Admin(commands.Cog, name="Admin"):
     @app_commands.default_permissions(manage_guild=True)
     async def set_model(self, interaction: discord.Interaction, model: str) -> None:
         await self.bot.guild_settings.update_settings(interaction.guild_id, ai_model=model)
-        await interaction.response.send_message(f"AI model set to **{model}**.", ephemeral=True)
+        await interaction.response.send_message("AI model configuration updated. Users will see the Wisee Models brand, not the backend model identifier.", ephemeral=True)
 
-    @app_commands.command(name="set_personality", description="Set Rose's personality mode.")
+    @app_commands.command(name="set_personality", description="Set Rosy's personality mode.")
     @app_commands.default_permissions(manage_guild=True)
     async def set_personality(self, interaction: discord.Interaction, mode: str) -> None:
         if mode not in PERSONALITIES:

@@ -56,7 +56,13 @@ def safe_eval_math(expression: str) -> str:
             op = ALLOWED_OPS.get(type(node.op))
             if op is None:
                 raise ValueError(f"Operator not allowed: {type(node.op).__name__}")
-            return op(visit(node.left), visit(node.right))
+            left, right = visit(node.left), visit(node.right)
+            if isinstance(node.op, ast.Pow) and (abs(right) > 100 or abs(left) > 10_000):
+                raise ValueError("Exponentiation is too large")
+            value = op(left, right)
+            if isinstance(value, (int, float)) and abs(value) > 10**100:
+                raise ValueError("Result is too large")
+            return value
         if isinstance(node, ast.UnaryOp):
             op = ALLOWED_OPS.get(type(node.op))
             if op is None:

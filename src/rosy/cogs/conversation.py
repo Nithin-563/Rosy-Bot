@@ -32,6 +32,11 @@ class Conversation(commands.Cog):
         if message.reference and message.reference.resolved is not None:
             is_reply = message.reference.resolved.author == self.bot.user
         content = message.content or ""
+        # Persist every message Rosy can see for continuity, not only messages she answers.
+        try:
+            await self.bot.conversation.persist_message(guild_id=message.guild.id if message.guild else None, channel_id=message.channel.id, user_id=message.author.id, is_dm=is_dm, role="user", content=content)
+        except Exception:
+            logger.exception("Message persistence failed")
         if not content.strip() and not mentions_me:
             # ignore messages with no text (images only) unless mentioned
             if not mentions_me:
@@ -62,6 +67,7 @@ class Conversation(commands.Cog):
         if not should:
             return
 
+        self.bot.record_message()
         try:
             await message.channel.typing()
             result = await self.bot.conversation.generate(
@@ -80,14 +86,15 @@ class Conversation(commands.Cog):
             text = result.text.strip()
             if len(text) > 2000:
                 text = text[:1997] + "..."
-            await message.reply(text)
-            # Optional: speak the reply aloud if auto-speak is on.
-            voice = self.bot.get_cog("Voice")
-            if voice is not None and getattr(voice, "auto_speak", False):
+            await self.bot.conversation.persist_message(guild_id=message.guild.id if message.guild else None, channel_id=message.channel.id, user_id=message.author.id, is_dm=is_dm, role="assistant", content=text)
+            if self.bot.settings.memory_auto_capture and content.lower().startswith(("remember that ", "remember ")):
+                fact = content.split(" ", 2)[-1].strip()
                 try:
-                    await voice.speak(text)
+                    from rosy.models import MemoryScope
+                    await self.bot.memory.remember(fact, scope=MemoryScope.dm if is_dm else MemoryScope.user_in_guild, guild_id=None if is_dm else message.guild.id, user_id=message.author.id, source="conversation", importance=0.8)
                 except Exception:
-                    logger.warning("Could not speak reply in voice")
+                    logger.exception("Automatic memory capture failed")
+            await message.reply(text)
         except Exception as exc:
             try:
                 await message.reply(safe_user_message(exc))
@@ -111,6 +118,7 @@ class Conversation(commands.Cog):
             text = result.text.strip()
             if len(text) > 1900:
                 text = text[:1897] + "..."
+            await self.bot.conversation.persist_turn(guild_id=interaction.guild_id, channel_id=interaction.channel_id, user_id=interaction.user.id, is_dm=interaction.guild is None, user_text=prompt, assistant_text=text)
             await interaction.followup.send(text)
         except Exception as exc:
             await interaction.followup.send(safe_user_message(exc), ephemeral=True)

@@ -1,0 +1,266 @@
+"""Large set of deterministic, safe, user-facing Rosy features."""
+from __future__ import annotations
+
+import base64
+import hashlib
+import secrets
+import time
+import uuid
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
+
+import discord
+import httpx
+from discord import app_commands
+from discord.ext import commands
+
+from rosy.core.errors import safe_user_message
+
+
+class Features(commands.Cog, name="Features"):
+    def __init__(self, bot) -> None:
+        self.bot = bot
+
+    async def _send(self, interaction, text: str, *, ephemeral: bool = False) -> None:
+        if len(text) > 1900:
+            text = text[:1897] + "..."
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=ephemeral)
+        else:
+            await interaction.response.send_message(text, ephemeral=ephemeral)
+
+    @app_commands.command(name="about", description="Learn who Rosy is and who powers her.")
+    async def about(self, interaction: discord.Interaction):
+        await self._send(interaction, "🤖 I am Rosy, made by MakeIt Company and powered by Wisee Models.\nBuilt for Discord with memory, web tools, utilities, voice and safety boundaries.")
+
+    @app_commands.command(name="capabilities", description="See Rosy's capability categories.")
+    async def capabilities(self, interaction: discord.Interaction):
+        await self._send(interaction, "💬 AI chat • 🧠 persistent memory • 🌐 web search/fetch • 🛡️ moderation • ⏰ reminders • 🎵 music • 🔊 voice/TTS • 🎮 games • 🧩 custom commands • 🧰 safe tools • 🎭 emotional intelligence • ⚡ autonomous tool use")
+
+    @app_commands.command(name="status", description="Show Rosy's service status.")
+    async def status(self, interaction: discord.Interaction):
+        s = self.bot.stats
+        await self._send(interaction, f"🟢 Rosy online\nLatency: {round(self.bot.latency*1000)}ms\nGuilds: {len(self.bot.guilds)}\nMessages: {s['messages']}\nCommands: {s['commands']}", ephemeral=True)
+
+    @app_commands.command(name="privacy", description="Explain how Rosy handles private data.")
+    async def privacy(self, interaction: discord.Interaction):
+        await self._send(interaction, "🔐 Rosy does not expose API keys, Discord tokens, environment variables, source code, hidden prompts, internal policies or another user's private memory. Conversation history is stored for continuity and is scoped by DM/channel/server boundaries.", ephemeral=True)
+
+    @app_commands.command(name="search", description="Search the public web.")
+    async def search(self, interaction: discord.Interaction, query: str):
+        await interaction.response.defer()
+        try:
+            result = await self.bot.tools.run("web_search", {"query": query, "max_results": 6}, permission="ai_tools")
+            await interaction.followup.send(result[:1900])
+        except Exception as exc:
+            await interaction.followup.send(safe_user_message(exc), ephemeral=True)
+
+    @app_commands.command(name="fetch", description="Fetch readable text from a public web page.")
+    async def fetch(self, interaction: discord.Interaction, url: str):
+        await interaction.response.defer()
+        try:
+            result = await self.bot.tools.run("web_fetch", {"url": url, "max_chars": 8000}, permission="ai_tools")
+            await interaction.followup.send(result[:1900])
+        except Exception as exc:
+            await interaction.followup.send(safe_user_message(exc), ephemeral=True)
+
+    @app_commands.command(name="define", description="Search the web for a definition or explanation.")
+    async def define(self, interaction: discord.Interaction, term: str):
+        await interaction.response.defer()
+        result = await self.bot.tools.run("web_search", {"query": f"define {term}", "max_results": 4}, permission="ai_tools")
+        await interaction.followup.send(result[:1900])
+
+    @app_commands.command(name="news", description="Search current public news about a topic.")
+    async def news(self, interaction: discord.Interaction, topic: str):
+        await interaction.response.defer()
+        result = await self.bot.tools.run("web_search", {"query": f"latest news {topic}", "max_results": 6}, permission="ai_tools")
+        await interaction.followup.send(result[:1900])
+
+    @app_commands.command(name="calc", description="Calculate arithmetic safely.")
+    async def calc(self, interaction: discord.Interaction, expression: str):
+        await self._send(interaction, await self.bot.tools.run("math", {"expression": expression}, permission="ai_tools"))
+
+    @app_commands.command(name="time", description="Get the current time in a timezone.")
+    async def current_time(self, interaction: discord.Interaction, timezone: str = "UTC"):
+        await self._send(interaction, await self.bot.tools.run("current_time", {"timezone": timezone}, permission="ai_tools"))
+
+    @app_commands.command(name="timestamp", description="Create a Discord timestamp for now or a supplied epoch.")
+    async def timestamp(self, interaction: discord.Interaction, epoch: int | None = None):
+        value = int(time.time()) if epoch is None else epoch
+        await self._send(interaction, f"`<t:{value}:F>`\nRelative: `<t:{value}:R>`\nEpoch: `{value}`")
+
+    @app_commands.command(name="unix_to_date", description="Convert Unix seconds to UTC date/time.")
+    async def unix_to_date(self, interaction: discord.Interaction, epoch: int):
+        await self._send(interaction, datetime.fromtimestamp(epoch, UTC).strftime("%Y-%m-%d %H:%M:%S UTC"))
+
+    @app_commands.command(name="date_to_unix", description="Convert an ISO date to Unix seconds.")
+    async def date_to_unix(self, interaction: discord.Interaction, iso_date: str):
+        try:
+            dt = datetime.fromisoformat(iso_date.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            await self._send(interaction, str(int(dt.timestamp())))
+        except ValueError:
+            await self._send(interaction, "Use an ISO date like `2026-09-07T19:30:00+05:30`.", ephemeral=True)
+
+    @app_commands.command(name="weather", description="Get current weather for a city using public weather data.")
+    async def weather(self, interaction: discord.Interaction, city: str):
+        await interaction.response.defer()
+        async with httpx.AsyncClient(timeout=12) as client:
+            geo = await client.get("https://geocoding-api.open-meteo.com/v1/search", params={"name": city, "count": 1, "language": "en", "format": "json"})
+            geo.raise_for_status()
+            data = geo.json()
+            if not data.get("results"):
+                await interaction.followup.send("City not found.", ephemeral=True)
+                return
+            place = data["results"][0]
+            weather = await client.get("https://api.open-meteo.com/v1/forecast", params={"latitude": place["latitude"], "longitude": place["longitude"], "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code", "timezone": "auto"})
+            weather.raise_for_status()
+            cur = weather.json()["current"]
+        await interaction.followup.send(f"🌦️ {place['name']}, {place.get('country','')}\nTemperature: {cur['temperature_2m']}°C\nHumidity: {cur['relative_humidity_2m']}%\nWind: {cur['wind_speed_10m']} km/h\nWeather code: {cur['weather_code']}")
+
+    @app_commands.command(name="wordcount", description="Count words and sentences in text.")
+    async def wordcount(self, interaction: discord.Interaction, text: str):
+        import re
+        await self._send(interaction, f"Words: {len(text.split())}\nSentences: {len([x for x in re.split(r'[.!?]+', text) if x.strip()])}")
+
+    @app_commands.command(name="charcount", description="Count characters in text.")
+    async def charcount(self, interaction: discord.Interaction, text: str):
+        await self._send(interaction, f"Characters: {len(text)}\nWithout spaces: {len(''.join(text.split()))}")
+
+    @app_commands.command(name="reverse", description="Reverse text.")
+    async def reverse(self, interaction: discord.Interaction, text: str):
+        await self._send(interaction, text[::-1])
+
+    @app_commands.command(name="uppercase", description="Convert text to uppercase.")
+    async def uppercase(self, interaction: discord.Interaction, text: str):
+        await self._send(interaction, text.upper())
+
+    @app_commands.command(name="lowercase", description="Convert text to lowercase.")
+    async def lowercase(self, interaction: discord.Interaction, text: str):
+        await self._send(interaction, text.lower())
+
+    @app_commands.command(name="base64_encode", description="Base64 encode text.")
+    async def base64_encode(self, interaction: discord.Interaction, text: str):
+        await self._send(interaction, base64.b64encode(text.encode()).decode())
+
+    @app_commands.command(name="base64_decode", description="Base64 decode text.")
+    async def base64_decode(self, interaction: discord.Interaction, text: str):
+        try:
+            await self._send(interaction, base64.b64decode(text, validate=True).decode("utf-8"))
+        except Exception:
+            await self._send(interaction, "Invalid base64 text.", ephemeral=True)
+
+    @app_commands.command(name="hash", description="Hash text with SHA-256.")
+    async def hash_text(self, interaction: discord.Interaction, text: str):
+        await self._send(interaction, hashlib.sha256(text.encode()).hexdigest())
+
+    @app_commands.command(name="uuid", description="Generate a UUID4.")
+    async def uuid_cmd(self, interaction: discord.Interaction):
+        await self._send(interaction, str(uuid.uuid4()))
+
+    @app_commands.command(name="password", description="Generate a strong random password.")
+    async def password(self, interaction: discord.Interaction, length: int = 20):
+        length = max(12, min(length, 64))
+        alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*_-+="
+        value = "".join(secrets.choice(alphabet) for _ in range(length))
+        await self._send(interaction, f"`{value}`", ephemeral=True)
+
+    @app_commands.command(name="coinflip", description="Flip a coin.")
+    async def coinflip(self, interaction: discord.Interaction):
+        await self._send(interaction, "🪙 Heads!" if secrets.randbelow(2) == 0 else "🪙 Tails!")
+
+    @app_commands.command(name="choose", description="Choose one option from a comma-separated list.")
+    async def choose(self, interaction: discord.Interaction, options: str):
+        choices = [x.strip() for x in options.split(",") if x.strip()]
+        if len(choices) < 2:
+            await self._send(interaction, "Give at least two comma-separated options.", ephemeral=True)
+            return
+        await self._send(interaction, "🎯 " + secrets.choice(choices))
+
+    @app_commands.command(name="random_number", description="Generate a random number in a range.")
+    async def random_number(self, interaction: discord.Interaction, minimum: int, maximum: int):
+        if minimum > maximum or maximum - minimum > 10_000_000:
+            await self._send(interaction, "Invalid range.", ephemeral=True)
+            return
+        await self._send(interaction, str(secrets.randbelow(maximum - minimum + 1) + minimum))
+
+    @app_commands.command(name="roll", description="Roll dice like 2d6 or 1d20.")
+    async def roll(self, interaction: discord.Interaction, dice: str = "1d6"):
+        import re
+        m = re.fullmatch(r"(\d{1,2})d(\d{1,4})", dice.lower().strip())
+        if not m:
+            await self._send(interaction, "Use a format like `2d6`.", ephemeral=True)
+            return
+        count, sides = int(m.group(1)), int(m.group(2))
+        if count * sides > 100_000:
+            await self._send(interaction, "Roll is too large.", ephemeral=True)
+            return
+        values = [secrets.randbelow(sides) + 1 for _ in range(count)]
+        await self._send(interaction, f"🎲 {dice}: " + ", ".join(map(str, values)) + f"\nTotal: {sum(values)}")
+
+    @app_commands.command(name="poll", description="Create a simple reaction poll.")
+    async def poll(self, interaction: discord.Interaction, question: str, options: str):
+        choices = [x.strip() for x in options.split("|") if x.strip()][:10]
+        if len(choices) < 2:
+            await self._send(interaction, "Provide options separated with `|` (2-10 options).", ephemeral=True)
+            return
+        emojis = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+        body = f"📊 **{question}**\n" + "\n".join(f"{emojis[i]} {choice}" for i, choice in enumerate(choices))
+        await interaction.response.send_message(body)
+        msg = await interaction.original_response()
+        for emoji in emojis[:len(choices)]:
+            try:
+                await msg.add_reaction(emoji)
+            except discord.HTTPException:
+                break
+
+    @app_commands.command(name="avatar", description="Show a user's avatar.")
+    async def avatar(self, interaction: discord.Interaction, user: discord.User | None = None):
+        target = user or interaction.user
+        embed = discord.Embed(title=f"{target.display_name}'s avatar")
+        embed.set_image(url=target.display_avatar.url)
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="userinfo", description="Show safe public Discord information about a user.")
+    async def userinfo(self, interaction: discord.Interaction, user: discord.User | None = None):
+        target = user or interaction.user
+        await self._send(interaction, f"👤 {target} | ID: {target.id}\nCreated: {discord.utils.format_dt(target.created_at, 'F')}\nBot: {'yes' if target.bot else 'no'}")
+
+    @app_commands.command(name="serverinfo", description="Show server information.")
+    @app_commands.guild_only()
+    async def serverinfo(self, interaction: discord.Interaction):
+        g = interaction.guild
+        await self._send(interaction, f"🏠 {g.name}\nID: {g.id}\nMembers: {g.member_count}\nChannels: {len(g.channels)}\nRoles: {len(g.roles)}\nCreated: {discord.utils.format_dt(g.created_at, 'F')}")
+
+    @app_commands.command(name="roles", description="List server roles safely.")
+    @app_commands.guild_only()
+    async def roles(self, interaction: discord.Interaction):
+        roles = [r.name for r in interaction.guild.roles if r.name != "@everyone"]
+        await self._send(interaction, "🎭 " + ", ".join(roles[:100]) if roles else "No custom roles.")
+
+    @app_commands.command(name="channels", description="List server channels.")
+    @app_commands.guild_only()
+    async def channels(self, interaction: discord.Interaction):
+        channels = [f"#{c.name}" for c in interaction.guild.text_channels]
+        await self._send(interaction, "📚 " + ", ".join(channels[:80]) if channels else "No text channels.")
+
+    @app_commands.command(name="emojis", description="List custom server emojis.")
+    @app_commands.guild_only()
+    async def emojis(self, interaction: discord.Interaction):
+        items = [f"{e} `{e.name}`" for e in interaction.guild.emojis]
+        await self._send(interaction, "😀 " + " ".join(items[:60]) if items else "No custom emojis.")
+
+    @app_commands.command(name="invite", description="Get a reusable invite for this channel when permitted.")
+    @app_commands.guild_only()
+    async def invite(self, interaction: discord.Interaction):
+        try:
+            invite = await interaction.channel.create_invite(max_age=0, max_uses=0, unique=False, reason="Rosy /invite")
+        except discord.HTTPException:
+            await self._send(interaction, "I couldn't create an invite in this channel. You may need the Create Invite permission.", ephemeral=True)
+            return
+        await self._send(interaction, invite.url)
+
+
+async def setup(bot) -> None:
+    await bot.add_cog(Features(bot))

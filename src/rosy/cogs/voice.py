@@ -1,98 +1,75 @@
-"""Voice cog: join/leave voice, and speak text via a TTS provider (optional)."""
-
+"""Voice join/leave and optional AI TTS voice-chat."""
 from __future__ import annotations
 
-import io
+import asyncio
 import logging
+import tempfile
+from pathlib import Path
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
+from rosy.core.errors import safe_user_message
+
 logger = logging.getLogger("rosy.voice")
-
-
-def _load_tts():
-    """Return an async TTS callable if edge-tts is installed, else None."""
-    try:
-        import edge_tts
-
-        async def _speak(text: str, voice: str = "en-US-JennyNeural") -> bytes:
-            communicate = edge_tts.Communicate(text, voice)
-            buf = io.BytesIO()
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    buf.write(chunk["data"])
-            return buf.getvalue()
-
-        return _speak
-    except Exception:  # pragma: no cover - feature-flag
-        return None
 
 
 class Voice(commands.Cog, name="Voice"):
     def __init__(self, bot) -> None:
         self.bot = bot
-        self.tts = _load_tts()
-        self.auto_speak = False
-        self._queue: list[str] = []
+        self._speaking_tasks: dict[int, asyncio.Task] = {}
 
-    async def speak(self, text: str) -> None:
-        """Play text aloud in the guild's voice channel if connected."""
-        if self.tts is None:
-            return
-        for guild in self.bot.guilds:
-            if guild.voice_client:
-                await self._play(guild.voice_client, text)
-                break
-
-    async def _play(self, vc, text: str) -> None:
+    async def _tts(self, text: str, voice: str) -> Path:
         try:
-            audio = await self.tts(text[:300])
-            if not audio:
-                return
-            import tempfile
+            import edge_tts
+        except ImportError as exc:
+            raise RuntimeError("Voice TTS is not installed. Deploy with the `voice` extra.") from exc
+        fd, raw = tempfile.mkstemp(suffix=".mp3", prefix="rosy-tts-")
+        import os
+        os.close(fd)
+        path = Path(raw)
+        communicate = edge_tts.Communicate(text[:3000], voice=voice)
+        await communicate.save(str(path))
+        return path
 
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                f.write(audio)
-                path = f.name
-            source = discord.FFmpegPCMAudio(path)
-            if not vc.is_playing():
-                vc.play(source, after=lambda e: None)
-        except Exception as exc:  # pragma: no cover
-            logger.warning("TTS playback failed: %s", exc)
+    async def _speak(self, guild: discord.Guild, text: str) -> None:
+        vc = guild.voice_client
+        if vc is None:
+            raise RuntimeError("Rosy is not in a voice channel.")
+        if not self.bot.settings.tts_enabled:
+            raise RuntimeError("TTS is disabled by the deployment settings. Set `ROS_TTS_ENABLED=true`.")
+        path = await self._tts(text, self.bot.settings.tts_voice)
+        source = discord.FFmpegPCMAudio(str(path), executable=self.bot.settings.ffmpeg_path)
+        previous = self._speaking_tasks.get(guild.id)
+        if previous and not previous.done():
+            previous.cancel()
+        done = asyncio.get_running_loop().create_future()
+        def after(error):
+            try:
+                path.unlink(missing_ok=True)
+            finally:
+                if not done.done():
+                    done.set_result(error)
+        vc.play(source, after=after)
+        await done
+        error = done.result()
+        if error:
+            raise RuntimeError("Voice playback failed.") from error
 
-    @app_commands.command(name="join", description="Make Rose join your voice channel.")
+    @app_commands.command(name="join", description="Make Rosy join your voice channel.")
     async def join(self, interaction: discord.Interaction) -> None:
         author = interaction.user
         if not author.voice or not author.voice.channel:
             await interaction.response.send_message("Join a voice channel first.", ephemeral=True)
             return
-        try:
-            if interaction.guild.voice_client:
-                await interaction.guild.voice_client.move_to(author.voice.channel)
-            else:
-                await author.voice.channel.connect()
-        except RuntimeError as exc:
-            # Missing voice library (davey) or unsupported platform.
-            msg = str(exc)
-            if "davey" in msg or "voice library" in msg:
-                await interaction.response.send_message(
-                    "Voice isn't available on this deployment — the voice library isn't installed. "
-                    "Deploy with the `voice` extra (pip install \".[voice]\") to enable it.",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.response.send_message(f"Couldn't join voice: {msg}", ephemeral=True)
-            return
-        except Exception as exc:  # noqa: BLE001
-            await interaction.response.send_message(
-                f"Couldn't join voice: {exc}", ephemeral=True
-            )
-            return
+        if interaction.guild.voice_client:
+            await interaction.guild.voice_client.move_to(author.voice.channel)
+        else:
+            await author.voice.channel.connect()
         await interaction.response.send_message(f"🔊 Joined {author.voice.channel.name}.")
 
-    @app_commands.command(name="leave", description="Make Rose leave the voice channel.")
+    @app_commands.command(name="leave", description="Make Rosy leave the voice channel.")
     async def leave(self, interaction: discord.Interaction) -> None:
         vc = interaction.guild.voice_client
         if vc:
@@ -101,33 +78,36 @@ class Voice(commands.Cog, name="Voice"):
         else:
             await interaction.response.send_message("I'm not in a voice channel.", ephemeral=True)
 
-    @app_commands.command(name="say", description="Make Rose speak text aloud in the voice channel.")
-    async def say(self, interaction: discord.Interaction, text: str) -> None:
-        if self.tts is None:
-            await interaction.response.send_message(
-                "Voice speech isn't enabled on this deployment (needs the `voice` extra / edge-tts).",
-                ephemeral=True,
-            )
-            return
-        vc = interaction.guild.voice_client
-        if not vc or not vc.is_connected():
-            await interaction.response.send_message("I need to be in a voice channel first. Use `/join`.", ephemeral=True)
-            return
-        await interaction.response.defer()
-        await self._play(vc, text)
-        await interaction.followup.send("🔊 Speaking...")
+    @app_commands.command(name="speak", description="Speak text aloud in Rosy's current voice channel.")
+    async def speak(self, interaction: discord.Interaction, text: str) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await self._speak(interaction.guild, text)
+            await interaction.followup.send("🔊 Spoken.", ephemeral=True)
+        except Exception as exc:
+            await interaction.followup.send(safe_user_message(exc), ephemeral=True)
 
-    @app_commands.command(name="voice", description="Toggle Rose speaking replies aloud in voice.")
-    async def voice_toggle(self, interaction: discord.Interaction, enabled: bool) -> None:
-        self.auto_speak = enabled
-        await interaction.response.send_message(
-            f"🗣️ Auto-speak {'enabled' if enabled else 'disabled'}.",
-            ephemeral=True,
-        )
+    @app_commands.command(name="voice_chat", description="Ask Rosy a question and have her answer aloud.")
+    async def voice_chat(self, interaction: discord.Interaction, prompt: str) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            result = await self.bot.conversation.generate(user_text=prompt, user_id=interaction.user.id, guild_id=interaction.guild_id, channel_id=interaction.channel_id, user_name=interaction.user.display_name)
+            await self._speak(interaction.guild, result.text)
+            await interaction.followup.send(f"🗣️ {result.text[:1800]}", ephemeral=True)
+        except Exception as exc:
+            await interaction.followup.send(safe_user_message(exc), ephemeral=True)
+
+    @app_commands.command(name="stop_speaking", description="Stop current voice playback.")
+    async def stop_speaking(self, interaction: discord.Interaction) -> None:
+        vc = interaction.guild.voice_client
+        if vc and vc.is_playing():
+            vc.stop()
+            await interaction.response.send_message("⏹️ Stopped speaking.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Nothing is playing.", ephemeral=True)
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after) -> None:
-        """Auto-leave if Rosy is alone in the channel."""
         if member.id != self.bot.user.id and before.channel is not None and after.channel is None:
             return
         vc = member.guild.voice_client if member.guild else None

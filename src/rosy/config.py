@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_referer: str = "https://rosy.bot"
-    openrouter_title: str = "Rose"
+    openrouter_title: str = "Rosy"
 
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
@@ -161,6 +161,16 @@ class Settings(BaseSettings):
     # --- Moderation / Rate limits ---
     command_rate_limit_per_minute: int = 10
     dm_rate_limit_per_minute: int = 20
+    tool_calls_enabled: bool = True
+    tool_call_max_rounds: int = 2
+    tool_timeout_seconds: float = 20.0
+    memory_auto_capture: bool = True
+    sync_global_commands: bool = True
+    sync_all_guild_commands: bool = True
+    max_message_history: int = 2000
+    founder_name: str = "K Nithin"
+    founder_company: str = "MakeIt Company"
+    brand_name: str = "Wisee Models"
 
     # --- Logging ---
     log_level: str = "INFO"

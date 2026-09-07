@@ -55,11 +55,12 @@ class RosyBot(commands.Bot):
         self.moderation = ModerationService(self.db)
         self.reminders = ReminderService(self.db)
         self.decision = DecisionEngine()
-        self.conversation = ConversationEngine(self.settings, self.ai, self.memory, self.decision)
         self.tools = build_default_registry(http=None, files=None)
+        self.conversation = ConversationEngine(self.settings, self.ai, self.memory, self.decision, db=self.db, tools=self.tools)
         self.services = self  # cogs can access everything via bot
 
         self._stats = {"commands": 0, "messages": 0, "started": time.monotonic()}
+        self.ready_event = None
     @staticmethod
     def _prefix(bot: RosyBot, message: discord.Message) -> list[str]:
         return [f"<@{bot.user.id}> ", f"<@!{bot.user.id}> "]
@@ -82,38 +83,42 @@ class RosyBot(commands.Bot):
         logger.info("Database schema ready.")
         await self.ai.start()
         self.tools = build_default_registry(http=self.ai.http, files=None)
+        self.conversation.tools = self.tools
         await self.load_cogs()
         await self.reminders.start(self.fire_reminder)
         logger.info("Rosy ready to sync commands.")
 
     async def sync_commands(self) -> None:
-        """Register slash commands with Discord.
-
-        Syncs instantly to every guild the bot is in (so commands appear
-        immediately in the user's server) and also globally as a fallback.
-        """
-        total = len(list(self.tree.get_commands()))
-        synced = 0
-        # Instant per-guild sync so commands show up right away.
-        for guild in self.guilds:
-            try:
-                await self.tree.sync(guild=guild)
-                synced += 1
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Could not sync commands to guild %s: %s", guild.id, exc)
-        # Global sync as a fallback (can take up to an hour to propagate).
+        """Synchronize slash commands globally and to current guilds for fast visibility."""
+        guild_ids = self.settings.guild_ids()
+        commands_count = len(self.tree.get_commands())
+        if not commands_count:
+            raise RuntimeError("No slash commands are registered; command cogs may not have loaded.")
         try:
-            await self.tree.sync()
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "Global slash command sync failed: %s. This usually means the bot was invited "
-                "WITHOUT the 'applications.commands' OAuth scope. Re-invite Rosy with BOTH "
-                "'bot' AND 'applications.commands' scopes.",
-                exc,
-            )
-        logger.info("Synced %d slash commands to %d guild(s) (and globally).", total, synced)
+            if self.settings.sync_global_commands:
+                await self.tree.sync()
+                logger.info("Synced %d slash commands globally.", commands_count)
+
+            targets = []
+            if guild_ids:
+                targets = [self.get_guild(gid) or discord.Object(id=gid) for gid in guild_ids]
+            elif self.settings.sync_all_guild_commands:
+                targets = list(self.guilds)
+            for guild in targets:
+                # Global tree commands are copied to the guild so they appear immediately in Discord.
+                self.tree.copy_global_to(guild=guild)
+                await self.tree.sync(guild=guild)
+            logger.info("Synced slash commands to %d guild(s) for immediate discovery.", len(targets))
+        except Exception as exc:
+            logger.exception("Command sync failed")
+            raise RuntimeError(
+                "Slash-command registration failed. Ensure the bot invite includes both the "
+                "'bot' and 'applications.commands' OAuth scopes and that the app can use commands."
+            ) from exc
 
     async def load_cogs(self) -> None:
+        loaded = []
+        failed = []
         for cog in [
             "conversation",
             "memory",
@@ -125,13 +130,19 @@ class RosyBot(commands.Bot):
             "music",
             "voice",
             "fun",
-            "utility",
             "help",
+            "features",
         ]:
             try:
                 await self.load_extension(f"rosy.cogs.{cog}")
-            except Exception:
+            except Exception as exc:
+                failed.append((cog, exc))
                 logger.exception("Failed to load cog %s", cog)
+            else:
+                loaded.append(cog)
+        if failed:
+            raise RuntimeError("One or more cogs failed to load: " + ", ".join(name for name, _ in failed))
+        logger.info("Loaded cogs: %s", ", ".join(loaded))
 
     async def fire_reminder(self, reminder) -> None:
         try:
@@ -147,19 +158,11 @@ class RosyBot(commands.Bot):
 
     async def on_ready(self) -> None:
         logger.info("Logged in as %s (%s)", self.user, self.user.id)
-        # Let the health server in main.py know we're online.
-        ready = getattr(self, "ready_event", None)
-        if ready is not None:
-            ready.set()
-        # Sync slash commands to every guild + globally. This is the ONLY place
-        # command registration runs; main.py must NOT override on_ready.
+        if self.ready_event is not None:
+            self.ready_event.set()
         if not getattr(self, "_synced", False):
-            try:
-                await self.sync_commands()
-            except Exception:  # pragma: no cover - never let sync crash startup
-                logger.exception("Command sync raised in on_ready")
-            finally:
-                self._synced = True
+            await self.sync_commands()
+            self._synced = True
 
     async def close(self) -> None:
         await self.reminders.stop()
@@ -187,27 +190,6 @@ class RosyBot(commands.Bot):
         except discord.HTTPException:
             pass
         logger.info("Command error in %s: %s", ctx.command, message)
-
-    async def on_app_command_error(self, interaction: discord.Interaction, error) -> None:
-        """Global slash-command error handler: never show the generic
-        'failed to respond'; always reply with something helpful."""
-        error = getattr(error, "original", error)
-        message = safe_user_message(error)
-        if not interaction.response.is_done():
-            try:
-                await interaction.response.send_message(message, ephemeral=True)
-            except Exception:  # noqa: BLE001
-                try:
-                    await interaction.followup.send(message, ephemeral=True)
-                except Exception:  # noqa: BLE001
-                    pass
-        else:
-            try:
-                await interaction.followup.send(message, ephemeral=True)
-            except Exception:  # noqa: BLE001
-                pass
-        logger.warning("App command %s error: %s", interaction.command, message)
-        logger.debug("App command error detail", exc_info=error)
 
 
 def build_bot(settings: Settings | None = None) -> RosyBot:

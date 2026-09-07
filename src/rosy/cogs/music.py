@@ -7,6 +7,7 @@ on minimal deployments).
 from __future__ import annotations
 
 import logging
+import asyncio
 
 import discord
 from discord import app_commands
@@ -46,7 +47,11 @@ class Music(commands.Cog, name="Music"):
         vc = interaction.guild.voice_client
         if vc is None:
             vc = await author.voice.channel.connect()
-        self.queue.setdefault(interaction.guild_id, []).append(query)
+        queue = self.queue.setdefault(interaction.guild_id, [])
+        if len(queue) >= self.bot.settings.music_max_queue:
+            await interaction.response.send_message("The music queue is full.", ephemeral=True)
+            return
+        queue.append(query)
         await interaction.response.send_message(f"🔎 Added **{query}** to the queue.")
         if not vc.is_playing():
             await self._play_next(interaction.guild_id, interaction.channel)
@@ -62,8 +67,16 @@ class Music(commands.Cog, name="Music"):
             await channel.send("Couldn't find that track.")
             await self._play_next(guild_id, channel)
             return
-        vc.play(discord.FFmpegPCMAudio(url, executable=self.bot.settings.ffmpeg_path))
-        vc.source = discord.PCMVolumeTransformer(vc.source, volume=self._volume.get(guild_id, 1.0))
+        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(url, executable=self.bot.settings.ffmpeg_path), volume=self._volume.get(guild_id, 1.0))
+        def after(error):
+            if error:
+                logger.warning("Music playback error in guild %s: %s", guild_id, error)
+            fut = asyncio.run_coroutine_threadsafe(self._play_next(guild_id, channel), self.bot.loop)
+            try:
+                fut.result()
+            except Exception:
+                logger.exception("Could not advance music queue")
+        vc.play(source, after=after)
         await channel.send(f"▶️ Now playing: **{query}**")
 
     async def _get_url(self, query: str) -> str | None:

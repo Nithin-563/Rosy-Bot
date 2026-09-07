@@ -96,7 +96,7 @@ class CredentialStore:
                 provider=provider,
                 api_key=key,
                 base_url=row.base_url or "",
-                model=row.default_model,
+                model=model or row.default_model,
             )
 
 

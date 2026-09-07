@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import discord
+from datetime import timedelta
 from discord import app_commands
 from discord.ext import commands
 
@@ -31,17 +32,24 @@ class Moderation(commands.Cog, name="Moderation"):
     @app_commands.command(name="timeout", description="Timeout a member.")
     @app_commands.default_permissions(moderate_members=True)
     async def timeout(self, interaction: discord.Interaction, member: discord.Member, minutes: int = 60, reason: str = "") -> None:
-        if not interaction.guild.me.guild_permissions.moderate_members:
+        if minutes < 1 or minutes > 40320:
+            await interaction.response.send_message("Timeout must be between 1 and 40320 minutes.", ephemeral=True)
+            return
+        me = interaction.guild.me
+        if not me or not me.guild_permissions.moderate_members:
             await interaction.response.send_message("I lack the moderate_members permission.", ephemeral=True)
             return
-        await member.timeout(duration=minutes * 60, reason=reason)
+        if member == interaction.user or (me.top_role <= member.top_role):
+            await interaction.response.send_message("I cannot timeout that member because of Discord role hierarchy.", ephemeral=True)
+            return
+        await member.timeout(duration=timedelta(minutes=minutes), reason=reason)
         await self._record(interaction.guild_id, member, "timeout", reason or f"{minutes}m", interaction.user)
         await interaction.response.send_message(f"⏱️ Timed out {member} for {minutes} minutes.")
 
     @app_commands.command(name="kick", description="Kick a member.")
     @app_commands.default_permissions(kick_members=True)
     async def kick(self, interaction: discord.Interaction, member: discord.Member, reason: str = "") -> None:
-        if not interaction.author.guild_permissions.kick_members:
+        if not interaction.user.guild_permissions.kick_members:
             await interaction.response.send_message("You lack permission.", ephemeral=True)
             return
         await member.kick(reason=reason)
@@ -51,7 +59,7 @@ class Moderation(commands.Cog, name="Moderation"):
     @app_commands.command(name="ban", description="Ban a member.")
     @app_commands.default_permissions(ban_members=True)
     async def ban(self, interaction: discord.Interaction, member: discord.Member, reason: str = "") -> None:
-        if not interaction.author.guild_permissions.ban_members:
+        if not interaction.user.guild_permissions.ban_members:
             await interaction.response.send_message("You lack permission.", ephemeral=True)
             return
         await member.ban(reason=reason)

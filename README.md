@@ -16,23 +16,20 @@ Pydantic, and OpenRouter by default.
 |---|---|
 | 💬 **Conversation** | Mentions, replies, name usage, autonomous replies, cooldowns |
 | 🧠 **Memory** | Per-DM, per-guild, and user-in-guild memories with importance/expiry |
-| 📜 **Never forgets** | Every message/reply stored; recent history replayed into context |
 | 🎭 **Personality** | 11 adaptive tones (friendly, technical, supportive, humorous, …) |
-| 💖 **Emotional intelligence** | Detects mood (sad, anxious, happy, grateful…) and responds empathetically |
 | 🗂️ **Multi-server** | Strictly isolated settings, memories, and AI config per guild |
 | 🔌 **AI providers** | OpenRouter (default), OpenAI, Gemini, Anthropic, Groq, Mistral + fallback |
-| 🔐 **Security** | Encrypted API keys, no secrets in logs, safe tool execution, hardcoded guardrails |
-| 🛡️ **Identity guard** | Refuses prompt-injection, reveals no code/prompts, refuses destructive actions |
-| 🏷️ **Branding** | Answers as a MakeIt Company product (Wisee Models) without leaking the model |
-| 🌐 **Tools** | Safe math, time/date, **web search**, web fetch, file text extraction |
+| 🔐 **Security** | Encrypted API keys at rest, no secrets in logs, safe tool execution |
+| 🌐 **Tools** | Safe math/time, public web search + fetch, bounded tool calls with SSRF/prompt-injection hardening |
 | 🛡️ **Moderation** | warn, timeout, kick, ban, history, anti-flood |
 | ⏰ **Reminders** | Persistent, timezone-aware, survive restarts |
-| 🎮 **Games** | 8-ball, dice, trivia, guess-the-number, rock-paper-scissors |
+| 🎮 **Games** | 8-ball, dice, trivia, guess-the-number |
 | 🎵 **Music** | play / pause / resume / skip / stop / queue (yt-dlp + ffmpeg) |
-| 🔊 **Voice** | join / leave, **speak replies aloud** (TTS), auto-speak toggle |
+| 🔊 **Voice** | join / leave, TTS speech, AI voice-chat responses (optional Edge TTS) |
 | 🧩 **Custom commands** | Admins create server-specific commands (no arbitrary code) |
-| ⚙️ **Admin** | Everything configured through Discord |
-| 🔧 **Utilities** | pick, reverse, leetspeak, base64, hash, password, poll, avatar, server, search, … |
+| ⚙️ **Admin** | Everything configured through Discord; backend model IDs are never shown to users |
+| 🧰 **Utilities** | 75 slash commands for weather, polls, encoding, hashing, randomization, server/user info and more |
+| 🔐 **AI boundary** | AI cannot execute shell/filesystem/database/moderation/destructive actions; only allowlisted safe tools are callable |
 
 ---
 
@@ -143,3 +140,11 @@ Add a capability without touching the core:
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
+
+### Command discovery
+
+Rosy now syncs the live command tree after every startup. The launcher no longer overrides the bot `on_ready` event, so command synchronization actually runs. For instant development updates, `ROS_SYNC_ALL_GUILD_COMMANDS=true` copies the global command set into every current guild; set it to `false` and use `ROS_DEV_GUILD_IDS` when operating at larger scale.
+
+### Security model
+
+AI tool calls are allowlisted. The AI can use safe calculation, time, public web search/fetch and explicitly provided file extraction; tools cannot access the shell, arbitrary filesystem paths, secrets, database credentials or destructive Discord actions. Tool results are treated as untrusted data, and public web requests reject local/private targets and redirects.

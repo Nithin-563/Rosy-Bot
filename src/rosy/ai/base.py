@@ -28,6 +28,7 @@ class ChatMessage:
     name: str | None = None
     # Optional structured tool-call arguments passed by the conversation engine.
     tool_calls: list[dict] | None = None
+    tool_call_id: str | None = None
 
 
 @dataclass
@@ -38,6 +39,7 @@ class ChatResult:
     usage: dict = field(default_factory=dict)
     raw: dict | None = None
     tool_calls: list[dict] | None = None
+    tool_call_id: str | None = None
 
     @property
     def prompt_tokens(self) -> int:
@@ -124,7 +126,7 @@ class OpenAICompatProvider(Provider):
         payload: dict[str, Any] = {
             "model": self.config.model,
             "messages": [
-                {"role": m.role, "content": m.content, **({"name": m.name} if m.name else {})}
+                {"role": m.role, "content": m.content, **({"name": m.name} if m.name else {}), **({"tool_calls": m.tool_calls} if m.tool_calls else {}), **({"tool_call_id": m.tool_call_id} if m.tool_call_id else {})}
                 for m in messages
             ],
         }

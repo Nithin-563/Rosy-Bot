@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import secrets
 
 import discord
 from discord import app_commands
@@ -48,7 +49,7 @@ class Games(commands.Cog, name="Games"):
     async def trivia(self, interaction: discord.Interaction) -> None:
         question, answer = random.choice(TRIVIA)
         self.bot.trivia_answers = getattr(self.bot, "trivia_answers", {})
-        self.bot.trivia_answers[interaction.channel_id] = answer.lower()
+        self.bot.trivia_answers[(interaction.channel_id, interaction.user.id)] = answer.lower()
         await interaction.response.send_message(f"🧠 **Trivia:** {question}\nReply with your answer.")
 
     @app_commands.command(name="guess", description="Play a quick guessing game (1-100).")
@@ -56,7 +57,7 @@ class Games(commands.Cog, name="Games"):
         number = random.randint(1, 100)
         if not hasattr(self.bot, "guess_games"):
             self.bot.guess_games = {}
-        self.bot.guess_games[interaction.channel_id] = number
+        self.bot.guess_games[(interaction.channel_id, interaction.user.id)] = number
         await interaction.response.send_message(
             "🎯 I've picked a number between 1 and 100. Reply with `guess <number>` to try!"
         )
@@ -71,17 +72,17 @@ class Games(commands.Cog, name="Games"):
                 num = int(content.split()[1])
             except (IndexError, ValueError):
                 return
-            target = self.bot.guess_games.get(message.channel.id)
+            target = self.bot.guess_games.get((message.channel.id, message.author.id))
             if target is None:
                 return
             if num == target:
-                del self.bot.guess_games[message.channel.id]
+                del self.bot.guess_games[(message.channel.id, message.author.id)]
                 await message.reply(f"🎉 Correct! The number was **{num}**.")
             else:
                 await message.reply("Too high! 📈" if num > target else "Too low! 📉")
         # trivia answers
-        if content and getattr(self.bot, "trivia_answers", {}).get(message.channel.id) == content:
-            del self.bot.trivia_answers[message.channel.id]
+        if content and getattr(self.bot, "trivia_answers", {}).get((message.channel.id, message.author.id)) == content:
+            del self.bot.trivia_answers[(message.channel.id, message.author.id)]
             await message.reply("✅ Correct! Well done.")
 
 
