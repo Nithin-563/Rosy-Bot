@@ -111,3 +111,116 @@ class TimeTool(BaseTool):
 
 def visit_eval(expression: str) -> float | int:
     return safe_eval_math(expression)
+
+class JsonTool(BaseTool):
+    spec = ToolSpec(
+        name="json_format",
+        description="Parse JSON text and return a clean formatted representation.",
+        parameters={"text": {"type": "string", "description": "JSON text."}},
+    )
+    async def execute(self, text: str = "", **kwargs) -> str:
+        import json
+        value = json.loads(text)
+        return json.dumps(value, ensure_ascii=False, indent=2)[:12000]
+
+
+class HashTool(BaseTool):
+    spec = ToolSpec(
+        name="text_hash",
+        description="Hash text with a standard digest algorithm.",
+        parameters={
+            "text": {"type": "string", "description": "Text to hash."},
+            "algorithm": {"type": "string", "description": "sha256, sha1 or md5."},
+        },
+    )
+    async def execute(self, text: str = "", algorithm: str = "sha256", **kwargs) -> str:
+        import hashlib
+        algo = algorithm.lower().replace("-", "")
+        if algo not in {"sha256", "sha1", "md5"}:
+            raise ValueError("Unsupported hash algorithm")
+        return getattr(hashlib, algo)(text.encode()).hexdigest()
+
+
+class RandomTool(BaseTool):
+    spec = ToolSpec(
+        name="random_number",
+        description="Generate a cryptographically strong random integer in a bounded range.",
+        parameters={"minimum": {"type": "integer"}, "maximum": {"type": "integer"}},
+    )
+    async def execute(self, minimum: int = 1, maximum: int = 100, **kwargs) -> str:
+        import secrets
+        minimum, maximum = int(minimum), int(maximum)
+        if minimum > maximum or maximum - minimum > 1_000_000:
+            raise ValueError("Invalid range")
+        return str(secrets.randbelow(maximum - minimum + 1) + minimum)
+
+
+class DiceTool(BaseTool):
+    spec = ToolSpec(
+        name="roll_dice",
+        description="Roll dice using notation such as 2d6 or 1d20.",
+        parameters={"dice": {"type": "string"}},
+    )
+    async def execute(self, dice: str = "1d6", **kwargs) -> str:
+        import random, re
+        m = re.fullmatch(r"(\d{1,2})d(\d{1,4})", dice.strip().lower())
+        if not m:
+            raise ValueError("Use notation like 2d6")
+        count, sides = map(int, m.groups())
+        if count * sides > 100_000:
+            raise ValueError("Roll too large")
+        rolls = [random.randint(1, sides) for _ in range(count)]
+        return f"{dice}: {rolls}; total={sum(rolls)}"
+
+
+class UrlTool(BaseTool):
+    spec = ToolSpec(
+        name="url_encode",
+        description="URL-encode text for use in a query or URL component.",
+        parameters={"text": {"type": "string"}},
+    )
+    async def execute(self, text: str = "", **kwargs) -> str:
+        from urllib.parse import quote
+        return quote(text, safe="")
+
+
+class ChoiceTool(BaseTool):
+    spec = ToolSpec(
+        name="random_choice",
+        description="Choose one item from a short pipe-separated list.",
+        parameters={"items": {"type": "string", "description": "Items separated by |."}},
+    )
+    async def execute(self, items: str = "", **kwargs) -> str:
+        import secrets
+        values = [x.strip() for x in items.split("|") if x.strip()]
+        if not values or len(values) > 100:
+            raise ValueError("Provide 1-100 items separated by |")
+        return secrets.choice(values)
+
+
+class Base64Tool(BaseTool):
+    spec = ToolSpec(
+        name="base64_encode",
+        description="Base64 encode UTF-8 text.",
+        parameters={"text": {"type": "string"}},
+    )
+    async def execute(self, text: str = "", **kwargs) -> str:
+        import base64
+        return base64.b64encode(text.encode()).decode()
+
+
+class RegexTestTool(BaseTool):
+    spec = ToolSpec(
+        name="regex_test",
+        description="Test a regular expression against text without executing arbitrary code.",
+        parameters={"pattern": {"type": "string"}, "text": {"type": "string"}},
+    )
+    async def execute(self, pattern: str = "", text: str = "", **kwargs) -> str:
+        import re
+        if len(pattern) > 500 or len(text) > 10000:
+            raise ValueError("Input too large")
+        try:
+            m = re.search(pattern, text)
+        except re.error as exc:
+            raise ValueError("Invalid regular expression") from exc
+        return "match" if m else "no match"

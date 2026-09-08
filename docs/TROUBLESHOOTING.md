@@ -17,7 +17,7 @@
 - Set the AI key: `ROS_OPENROUTER_API_KEY` (or another provider's key), then
   restart.
 - If you set a per-guild provider in `/set_provider` without storing a key,
-  Rose falls back to the default provider — check `ROS_DEFAULT_PROVIDER`.
+  Rosy falls back to the default provider — check `ROS_DEFAULT_PROVIDER`.
 
 ## Memory/reminders don't persist across restarts
 - They're stored in PostgreSQL. Confirm `DATABASE_URL` is set and reachable.

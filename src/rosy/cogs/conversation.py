@@ -49,7 +49,7 @@ class Conversation(commands.Cog):
         if message.reference and message.reference.resolved is not None:
             is_reply = message.reference.resolved.author == self.bot.user
         content = message.content or ""
-        # Persist every message Rose can see for continuity, not only messages she answers.
+        # Persist every message Rosy can see for continuity, not only messages she answers.
         try:
             await self.bot.conversation.persist_message(guild_id=message.guild.id if message.guild else None, channel_id=message.channel.id, user_id=message.author.id, is_dm=is_dm, role="user", content=content)
         except Exception:
@@ -86,19 +86,32 @@ class Conversation(commands.Cog):
 
         self.bot.record_message()
         try:
+            import asyncio
             await message.channel.typing()
-            result = await self.bot.conversation.generate(
-                user_text=content,
-                user_id=message.author.id,
-                guild_id=message.guild.id if message.guild else None,
-                channel_id=message.channel.id,
-                is_dm=is_dm,
-                personality_mode=gs.personality_mode if gs else "friendly",
-                guild_name=message.guild.name if message.guild else "",
-                user_name=message.author.display_name,
-                provider=provider,
-                model=model,
-            )
+            result = None
+            last_exc = None
+            for attempt in range(2):
+                try:
+                    result = await self.bot.conversation.generate(
+                        user_text=content,
+                        user_id=message.author.id,
+                        guild_id=message.guild.id if message.guild else None,
+                        channel_id=message.channel.id,
+                        is_dm=is_dm,
+                        personality_mode=gs.personality_mode if gs else "friendly",
+                        guild_name=message.guild.name if message.guild else "",
+                        user_name=message.author.display_name,
+                        provider=provider,
+                        model=model,
+                    )
+                    break
+                except Exception as exc:  # retry once so transient tool/provider failures don't flash an error message
+                    last_exc = exc
+                    if attempt == 0:
+                        logger.warning("Conversation attempt 1 failed (%s); retrying once", type(exc).__name__)
+                        await asyncio.sleep(0.35)
+            if result is None:
+                raise last_exc or RuntimeError("AI generation failed")
             self.bot.conversation.mark_response(str(message.channel.id))
             text = result.text.strip()
             if len(text) > 2000:
@@ -121,7 +134,7 @@ class Conversation(commands.Cog):
                 pass
             logger.exception("Conversation error")
 
-    @discord.app_commands.command(name="chat", description="Ask Rose something directly.")
+    @discord.app_commands.command(name="chat", description="Ask Rosy something directly.")
     async def chat(self, interaction: discord.Interaction, prompt: str) -> None:
         await interaction.response.defer()
         try:

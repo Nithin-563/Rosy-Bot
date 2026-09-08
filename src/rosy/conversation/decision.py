@@ -1,6 +1,6 @@
 """Response-decision system.
 
-Determines whether Rose should respond to a message, considering mentions,
+Determines whether Rosy should respond to a message, considering mentions,
 replies, name usage, autonomous participation, cooldown, and spam prevention.
 """
 

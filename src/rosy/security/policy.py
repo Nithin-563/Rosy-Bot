@@ -35,7 +35,10 @@ class SafetyDecision:
 
 
 def founder_response(text: str) -> str | None:
+    lowered = text.lower()
     if FOUNDER_QUESTION.search(text):
+        if any(term in lowered for term in ("founder", "developer", "creator", "who is behind", "your maker")):
+            return FOUNDER_RESPONSES[1]
         return FOUNDER_RESPONSES[0]
     if MODEL_QUESTION.search(text):
         return "I’m powered by Wisee Models, which is powered by MakeIt Company."

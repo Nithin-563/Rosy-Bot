@@ -17,9 +17,10 @@ class CustomCommands(commands.Cog, name="Custom Commands"):
     @app_commands.command(name="add_command", description="Create a custom command for this server.")
     @app_commands.default_permissions(manage_guild=True)
     async def add_command(self, interaction: discord.Interaction, name: str, response: str, ai_powered: bool = False) -> None:
+        await interaction.response.defer()
         name = name.lower().lstrip("!")
         if not re_is_valid_name(name):
-            await interaction.response.send_message("Command names can only use letters, numbers, and underscores.", ephemeral=True)
+            await interaction.followup.send("Command names can only use letters, numbers, and underscores.", ephemeral=True)
             return
         async with self.bot.db.session() as session:
             from sqlalchemy import select
@@ -38,11 +39,12 @@ class CustomCommands(commands.Cog, name="Custom Commands"):
             cmd.ai_powered = ai_powered
             cmd.enabled = True
             await session.commit()
-        await interaction.response.send_message(f"Command `{name}` saved.")
+        await interaction.followup.send(f"Command `{name}` saved.")
 
     @app_commands.command(name="remove_command", description="Delete a custom command.")
     @app_commands.default_permissions(manage_guild=True)
     async def remove_command(self, interaction: discord.Interaction, name: str) -> None:
+        await interaction.response.defer()
         name = name.lower().lstrip("!")
         async with self.bot.db.session() as session:
             from sqlalchemy import select
@@ -54,11 +56,11 @@ class CustomCommands(commands.Cog, name="Custom Commands"):
             )
             cmd = res.scalar_one_or_none()
             if cmd is None:
-                await interaction.response.send_message(f"No command named `{name}`.", ephemeral=True)
+                await interaction.followup.send(f"No command named `{name}`.", ephemeral=True)
                 return
             await session.delete(cmd)
             await session.commit()
-        await interaction.response.send_message(f"Removed `{name}`.")
+        await interaction.followup.send(f"Removed `{name}`.")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:

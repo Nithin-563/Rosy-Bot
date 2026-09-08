@@ -1,4 +1,4 @@
-"""Rose configuration.
+"""Rosy configuration.
 
 All runtime configuration is loaded from environment variables (or a `.env`
 file) via pydantic-settings. Nothing sensitive is hard-coded.
@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 # Map commonly used (non-prefixed / alternate) environment variable names onto
-# the canonical settings fields, so Rose works no matter which naming the host
+# the canonical settings fields, so Rosy works no matter which naming the host
 # uses. Primary ROS_* names still take precedence.
 _ENV_ALIASES = {
     "discord_token": ["DISCORD_TOKEN", "DISCORD_BOT_TOKEN"],
@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_referer: str = "https://rosy.bot"
-    openrouter_title: str = "Rose"
+    openrouter_title: str = "Rosy"
     openrouter_auto_model: str = "openrouter/auto"
     openrouter_free_model: str = "openrouter/free"
 

@@ -1,4 +1,4 @@
-"""RoseBot — the application container.
+"""RosyBot — the application container.
 
 Wires configuration, database, AI manager, memory, conversation engine,
 reminders, moderation, settings, tools and cogs together, and exposes them to
@@ -39,7 +39,7 @@ def _redact_db_url(url) -> str:
     return s
 
 
-class RoseBot(commands.Bot):
+class RosyBot(commands.Bot):
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         intents = self._build_intents()
@@ -61,8 +61,23 @@ class RoseBot(commands.Bot):
 
         self._stats = {"commands": 0, "messages": 0, "started": time.monotonic()}
         self.ready_event = None
+        self.tree.on_error = self._on_tree_error
+
+    async def _on_tree_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        """Handle slash-command errors without leaking internals or double-replying."""
+        original = getattr(error, "original", error)
+        logger.exception("Slash command failed: %s", original)
+        message = safe_user_message(original)
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+        except (discord.NotFound, discord.HTTPException):
+            # Interaction token can expire; never turn that into another user-facing error.
+            pass
     @staticmethod
-    def _prefix(bot: RoseBot, message: discord.Message) -> list[str]:
+    def _prefix(bot: RosyBot, message: discord.Message) -> list[str]:
         return [f"<@{bot.user.id}> ", f"<@!{bot.user.id}> "]
 
     def _build_intents(self) -> discord.Intents:
@@ -91,7 +106,7 @@ class RoseBot(commands.Bot):
         self.conversation.tools = self.tools
         await self.load_cogs()
         await self.reminders.start(self.fire_reminder)
-        logger.info("Rose ready to sync commands.")
+        logger.info("Rosy ready to sync commands.")
 
     async def sync_commands(self) -> None:
         """Synchronize slash commands globally and to current guilds for fast visibility."""
@@ -137,6 +152,7 @@ class RoseBot(commands.Bot):
             "fun",
             "help",
             "features",
+            "advanced",
         ]:
             try:
                 await self.load_extension(f"rosy.cogs.{cog}")
@@ -197,8 +213,8 @@ class RoseBot(commands.Bot):
         logger.info("Command error in %s: %s", ctx.command, message)
 
 
-def build_bot(settings: Settings | None = None) -> RoseBot:
-    return RoseBot(settings)
+def build_bot(settings: Settings | None = None) -> RosyBot:
+    return RosyBot(settings)
 
-# Backwards-compatible internal alias; the user-facing product name is Rose.
-RosyBot = RoseBot
+# Backwards-compatible internal alias; the user-facing product name is Rosy.
+RosyBot = RosyBot

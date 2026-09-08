@@ -1,6 +1,6 @@
 # Database & migrations
 
-Rose uses **PostgreSQL** in production via SQLAlchemy 2.x async (asyncpg).
+Rosy uses **PostgreSQL** in production via SQLAlchemy 2.x async (asyncpg).
 For local testing without Postgres you can point `DATABASE_URL` at SQLite
 (`sqlite+aiosqlite:///./rosy.db`).
 

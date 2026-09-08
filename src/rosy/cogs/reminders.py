@@ -31,9 +31,10 @@ class Reminders(commands.Cog, name="Reminders"):
 
     @app_commands.command(name="remind", description="Set a reminder (e.g. '30m', '2h', 'tomorrow').")
     async def remind(self, interaction: discord.Interaction, duration: str, message: str) -> None:
+        await interaction.response.defer()
         delta = parse_delta(duration)
         if delta is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "I couldn't parse that duration. Use e.g. `30m`, `2h`, `1d`, `tomorrow`.", ephemeral=True
             )
             return
@@ -45,28 +46,30 @@ class Reminders(commands.Cog, name="Reminders"):
             fire_at=fire_at,
             guild_id=interaction.guild_id,
         )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"✅ Reminder #{r.id} set for <t:{int(fire_at.timestamp())}:R>."
         )
 
     @app_commands.command(name="reminders", description="List your pending reminders.")
     async def list_reminders(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         rows = await self.bot.reminders.list_for_user(interaction.user.id)
         if not rows:
-            await interaction.response.send_message("You have no pending reminders.", ephemeral=True)
+            await interaction.followup.send("You have no pending reminders.", ephemeral=True)
             return
         lines = [
             f"`#{r.id}` {r.fire_at:%Y-%m-%d %H:%M} — {r.message[:60]}" for r in rows if not r.fired
         ]
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=discord.Embed(title="Your reminders", description="\n".join(lines) or "none pending"),
             ephemeral=True,
         )
 
     @app_commands.command(name="cancel_reminder", description="Cancel one of your reminders by id.")
     async def cancel(self, interaction: discord.Interaction, reminder_id: int) -> None:
+        await interaction.response.defer()
         ok = await self.bot.reminders.cancel(reminder_id, interaction.user.id)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "Reminder cancelled." if ok else "Couldn't find that reminder.", ephemeral=True
         )
 

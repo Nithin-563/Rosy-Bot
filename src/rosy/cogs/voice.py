@@ -36,7 +36,7 @@ class Voice(commands.Cog, name="Voice"):
     async def _speak(self, guild: discord.Guild, text: str) -> None:
         vc = guild.voice_client
         if vc is None:
-            raise RuntimeError("Rose is not in a voice channel.")
+            raise RuntimeError("Rosy is not in a voice channel.")
         if not self.bot.settings.tts_enabled:
             raise RuntimeError("TTS is disabled by the deployment settings. Set `ROS_TTS_ENABLED=true`.")
         path = await self._tts(text, self.bot.settings.tts_voice)
@@ -57,28 +57,30 @@ class Voice(commands.Cog, name="Voice"):
         if error:
             raise RuntimeError("Voice playback failed.") from error
 
-    @app_commands.command(name="join", description="Make Rose join your voice channel.")
+    @app_commands.command(name="join", description="Make Rosy join your voice channel.")
     async def join(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         author = interaction.user
         if not author.voice or not author.voice.channel:
-            await interaction.response.send_message("Join a voice channel first.", ephemeral=True)
+            await interaction.followup.send("Join a voice channel first.", ephemeral=True)
             return
         if interaction.guild.voice_client:
             await interaction.guild.voice_client.move_to(author.voice.channel)
         else:
             await author.voice.channel.connect()
-        await interaction.response.send_message(f"🔊 Joined {author.voice.channel.name}.")
+        await interaction.followup.send(f"🔊 Joined {author.voice.channel.name}.")
 
-    @app_commands.command(name="leave", description="Make Rose leave the voice channel.")
+    @app_commands.command(name="leave", description="Make Rosy leave the voice channel.")
     async def leave(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         vc = interaction.guild.voice_client
         if vc:
             await vc.disconnect()
-            await interaction.response.send_message("👋 Left the voice channel.")
+            await interaction.followup.send("👋 Left the voice channel.")
         else:
-            await interaction.response.send_message("I'm not in a voice channel.", ephemeral=True)
+            await interaction.followup.send("I'm not in a voice channel.", ephemeral=True)
 
-    @app_commands.command(name="speak", description="Speak text aloud in Rose's current voice channel.")
+    @app_commands.command(name="speak", description="Speak text aloud in Rosy's current voice channel.")
     async def speak(self, interaction: discord.Interaction, text: str) -> None:
         await interaction.response.defer(ephemeral=True)
         try:
@@ -87,7 +89,7 @@ class Voice(commands.Cog, name="Voice"):
         except Exception as exc:
             await interaction.followup.send(safe_user_message(exc), ephemeral=True)
 
-    @app_commands.command(name="voice_chat", description="Ask Rose a question and have her answer aloud.")
+    @app_commands.command(name="voice_chat", description="Ask Rosy a question and have her answer aloud.")
     async def voice_chat(self, interaction: discord.Interaction, prompt: str) -> None:
         await interaction.response.defer(ephemeral=True)
         try:
@@ -99,12 +101,13 @@ class Voice(commands.Cog, name="Voice"):
 
     @app_commands.command(name="stop_speaking", description="Stop current voice playback.")
     async def stop_speaking(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         vc = interaction.guild.voice_client
         if vc and vc.is_playing():
             vc.stop()
-            await interaction.response.send_message("⏹️ Stopped speaking.", ephemeral=True)
+            await interaction.followup.send("⏹️ Stopped speaking.", ephemeral=True)
         else:
-            await interaction.response.send_message("Nothing is playing.", ephemeral=True)
+            await interaction.followup.send("Nothing is playing.", ephemeral=True)
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after) -> None:

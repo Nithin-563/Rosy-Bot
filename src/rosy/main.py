@@ -1,4 +1,4 @@
-"""Rose entrypoint.
+"""Rosy entrypoint.
 
 Usage:
     python -m rosy.main

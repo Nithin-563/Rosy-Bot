@@ -24,41 +24,45 @@ class Games(commands.Cog, name="Games"):
 
     @app_commands.command(name="8ball", description="Ask the magic 8-ball a question.")
     async def eight_ball(self, interaction: discord.Interaction, question: str) -> None:
+        await interaction.response.defer()
         answers = [
             "It is certain.", "Without a doubt.", "Yes — definitely.",
             "Most likely.", "Outlook good.", "Reply hazy, try again.",
             "Ask again later.", "Better not tell you now.", "Cannot predict now.",
             "Don't count on it.", "My sources say no.", "Very doubtful.",
         ]
-        await interaction.response.send_message(f"🎱 **Q:** {question}\n**A:** {random.choice(answers)}")
+        await interaction.followup.send(f"🎱 **Q:** {question}\n**A:** {random.choice(answers)}")
 
     @app_commands.command(name="dice", description="Roll one or more dice (e.g. 2d6).")
     async def dice(self, interaction: discord.Interaction, dice: str = "1d6") -> None:
+        await interaction.response.defer()
         try:
             count, sides = dice.lower().split("d")
             count, sides = int(count), int(sides)
             if count < 1 or count > 10 or sides < 2 or sides > 1000:
                 raise ValueError
         except ValueError:
-            await interaction.response.send_message("Use format like `2d6`.", ephemeral=True)
+            await interaction.followup.send("Use format like `2d6`.", ephemeral=True)
             return
         rolls = [random.randint(1, sides) for _ in range(count)]
-        await interaction.response.send_message(f"🎲 {dice}: {rolls} (total {sum(rolls)})")
+        await interaction.followup.send(f"🎲 {dice}: {rolls} (total {sum(rolls)})")
 
     @app_commands.command(name="trivia", description="Answer a random trivia question.")
     async def trivia(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         question, answer = random.choice(TRIVIA)
         self.bot.trivia_answers = getattr(self.bot, "trivia_answers", {})
         self.bot.trivia_answers[(interaction.channel_id, interaction.user.id)] = answer.lower()
-        await interaction.response.send_message(f"🧠 **Trivia:** {question}\nReply with your answer.")
+        await interaction.followup.send(f"🧠 **Trivia:** {question}\nReply with your answer.")
 
     @app_commands.command(name="guess", description="Play a quick guessing game (1-100).")
     async def guess(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         number = random.randint(1, 100)
         if not hasattr(self.bot, "guess_games"):
             self.bot.guess_games = {}
         self.bot.guess_games[(interaction.channel_id, interaction.user.id)] = number
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "🎯 I've picked a number between 1 and 100. Reply with `guess <number>` to try!"
         )
 

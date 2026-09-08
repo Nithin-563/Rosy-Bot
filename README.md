@@ -1,6 +1,6 @@
-# Rose 🤖
+# Rosy 🤖
 
-Rose is a **modular, production-quality AI Discord bot** built as an extensible
+Rosy is a **modular, production-quality AI Discord bot** built as an extensible
 platform — not just a chatbot. She chats naturally, remembers things per
 server/user, moderates, reminds you, plays games and music, answers in voice,
 and can be configured entirely from Discord.
@@ -12,7 +12,7 @@ Pydantic, and OpenRouter by default.
 
 ## ✨ Features
 
-| Area | What Rose does |
+| Area | What Rosy does |
 |---|---|
 | 💬 **Conversation** | Mentions, replies, name usage, autonomous replies, cooldowns |
 | 🧠 **Memory** | Per-DM, per-guild, and user-in-guild memories with importance/expiry |
@@ -143,7 +143,7 @@ MIT — see [`LICENSE`](LICENSE).
 
 ### Command discovery
 
-Rose now syncs the live command tree after every startup. The launcher no longer overrides the bot `on_ready` event, so command synchronization actually runs. For instant development updates, `ROS_SYNC_ALL_GUILD_COMMANDS=true` copies the global command set into every current guild; set it to `false` and use `ROS_DEV_GUILD_IDS` when operating at larger scale.
+Rosy now syncs the live command tree after every startup. The launcher no longer overrides the bot `on_ready` event, so command synchronization actually runs. For instant development updates, `ROS_SYNC_ALL_GUILD_COMMANDS=true` copies the global command set into every current guild; set it to `false` and use `ROS_DEV_GUILD_IDS` when operating at larger scale.
 
 ### Security model
 

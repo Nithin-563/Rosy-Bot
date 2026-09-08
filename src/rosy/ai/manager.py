@@ -60,6 +60,8 @@ class CredentialStore:
         if guild_id is not None:
             db_cred = await self._db_credentials(provider, guild_id)
             if db_cred is not None:
+                if model:
+                    db_cred.model = model
                 return db_cred
         env = self._env_credentials(provider)
         if not env["api_key"]:

@@ -7,6 +7,7 @@ import socket
 from urllib.parse import quote_plus, urlparse
 
 import httpx
+from bs4 import BeautifulSoup
 
 from rosy.tools.base import BaseTool, ToolSpec
 
@@ -49,20 +50,20 @@ class WebSearchTool(BaseTool):
             raise ValueError("Invalid search query.")
         max_results = max(1, min(int(max_results), 8))
         url = "https://html.duckduckgo.com/html/?q=" + quote_plus(query)
-        response = await self.http.get(url, follow_redirects=False, headers={"User-Agent": "Rose/1.0"})
+        response = await self.http.get(url, follow_redirects=False, headers={"User-Agent": "Rosy/1.0"})
         response.raise_for_status()
-        html = response.text
-        blocks = re.findall(r'(?is)<div[^>]+class="result__body".*?</div>\s*</div>', html)
+        soup = BeautifulSoup(response.text, "html.parser")
         results: list[str] = []
-        for block in blocks[:max_results]:
-            title_m = re.search(r'(?is)<a[^>]+class="result__a"[^>]*>(.*?)</a>', block)
-            href_m = re.search(r'(?is)<a[^>]+class="result__a"[^>]+href="([^"]+)"', block)
-            snip_m = re.search(r'(?is)class="result__snippet"[^>]*>(.*?)</', block)
-            if not title_m or not href_m:
+        for block in soup.select("div.result")[:max_results]:
+            anchor = block.select_one("a.result__a")
+            if anchor is None:
                 continue
-            title = _strip_html(title_m.group(1))
-            href = href_m.group(1)
-            snippet = _strip_html(snip_m.group(1)) if snip_m else ""
+            title = anchor.get_text(" ", strip=True)
+            href = anchor.get("href", "").strip()
+            snippet_node = block.select_one(".result__snippet")
+            snippet = snippet_node.get_text(" ", strip=True) if snippet_node else ""
+            if not title or not href:
+                continue
             results.append(f"{len(results)+1}. {title}\n{href}\n{snippet[:500]}")
         if not results:
             return "No web results found."
@@ -86,8 +87,13 @@ class WebFetchTool(BaseTool):
     async def execute(self, url: str = "", max_chars: int = 6000, **kwargs) -> str:
         _validate_public_url(url)
         max_chars = max(500, min(int(max_chars), 12000))
-        response = await self.http.get(url, follow_redirects=False, headers={"User-Agent": "Rose/1.0"})
+        response = await self.http.get(url, follow_redirects=False, headers={"User-Agent": "Rosy/1.0"})
         response.raise_for_status()
+        content_type = response.headers.get("content-type", "")
+        if content_type and not any(x in content_type.lower() for x in ("text/html", "text/plain", "application/xhtml+xml")):
+            raise ValueError("That URL does not return a readable web page.")
+        if len(response.content) > 4 * 1024 * 1024:
+            raise ValueError("The web page is too large to read safely.")
         text = _html_to_text(response.text)
         return text[:max_chars]
 

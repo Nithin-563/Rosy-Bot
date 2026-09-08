@@ -34,25 +34,26 @@ class Music(commands.Cog, name="Music"):
 
     @app_commands.command(name="play", description="Play a song/URL in your voice channel.")
     async def play(self, interaction: discord.Interaction, query: str) -> None:
+        await interaction.response.defer()
         if not self._ytdl_available():
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Music is not installed on this deployment (missing `yt-dlp`). Chat, games, and tools still work.",
                 ephemeral=True,
             )
             return
         author = interaction.user
         if not author.voice or not author.voice.channel:
-            await interaction.response.send_message("Join a voice channel first.", ephemeral=True)
+            await interaction.followup.send("Join a voice channel first.", ephemeral=True)
             return
         vc = interaction.guild.voice_client
         if vc is None:
             vc = await author.voice.channel.connect()
         queue = self.queue.setdefault(interaction.guild_id, [])
         if len(queue) >= self.bot.settings.music_max_queue:
-            await interaction.response.send_message("The music queue is full.", ephemeral=True)
+            await interaction.followup.send("The music queue is full.", ephemeral=True)
             return
         queue.append(query)
-        await interaction.response.send_message(f"🔎 Added **{query}** to the queue.")
+        await interaction.followup.send(f"🔎 Added **{query}** to the queue.")
         if not vc.is_playing():
             await self._play_next(interaction.guild_id, interaction.channel)
 
@@ -93,44 +94,49 @@ class Music(commands.Cog, name="Music"):
 
     @app_commands.command(name="skip", description="Skip the current track.")
     async def skip(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         vc = interaction.guild.voice_client
         if vc and vc.is_playing():
             vc.stop()
-            await interaction.response.send_message("⏭ Skipped.")
+            await interaction.followup.send("⏭ Skipped.")
         else:
-            await interaction.response.send_message("Nothing playing.", ephemeral=True)
+            await interaction.followup.send("Nothing playing.", ephemeral=True)
 
     @app_commands.command(name="stop", description="Stop playback and clear the queue.")
     async def stop(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         self.queue.pop(interaction.guild_id, None)
         vc = interaction.guild.voice_client
         if vc:
             vc.stop()
-        await interaction.response.send_message("🛑 Stopped and cleared queue.")
+        await interaction.followup.send("🛑 Stopped and cleared queue.")
 
     @app_commands.command(name="pause", description="Pause playback.")
     async def pause(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         vc = interaction.guild.voice_client
         if vc and vc.is_playing():
             vc.pause()
-            await interaction.response.send_message("⏸ Paused.")
+            await interaction.followup.send("⏸ Paused.")
         else:
-            await interaction.response.send_message("Nothing playing.", ephemeral=True)
+            await interaction.followup.send("Nothing playing.", ephemeral=True)
 
     @app_commands.command(name="resume", description="Resume playback.")
     async def resume(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         vc = interaction.guild.voice_client
         if vc and vc.is_paused():
             vc.resume()
-            await interaction.response.send_message("▶️ Resumed.")
+            await interaction.followup.send("▶️ Resumed.")
 
     @app_commands.command(name="queue", description="Show the current queue.")
     async def queue(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         q = self.queue.get(interaction.guild_id, [])
         if not q:
-            await interaction.response.send_message("Queue is empty.", ephemeral=True)
+            await interaction.followup.send("Queue is empty.", ephemeral=True)
             return
-        await interaction.response.send_message("\n".join(f"{i}. {t}" for i, t in enumerate(q, 1))[:1900])
+        await interaction.followup.send("\n".join(f"{i}. {t}" for i, t in enumerate(q, 1))[:1900])
 
 
 async def setup(bot) -> None:

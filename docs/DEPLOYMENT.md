@@ -14,7 +14,7 @@
 7. Railway runs the health check against port `8080` (the bot serves `/`).
 
 Slash commands register on startup. Check **Deployments** logs for `Logged in as
-Rose` to confirm a clean start.
+Rosy` to confirm a clean start.
 
 ## Other hosts
 
