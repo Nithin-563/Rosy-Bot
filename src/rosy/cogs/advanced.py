@@ -41,8 +41,8 @@ class Advanced(commands.Cog, name="Advanced"):
         await interaction.response.defer()
         await interaction.followup.send(f"Got it — I’ll use a {style.value} vibe.", ephemeral=True)
 
-    @app_commands.command(name="choose", description="Randomly choose from pipe-separated options.")
-    async def choose(self, interaction: discord.Interaction, options: str):
+    @app_commands.command(name="pick", description="Randomly choose from pipe-separated options.")
+    async def pick(self, interaction: discord.Interaction, options: str):
         await interaction.response.defer()
         try:
             result = await self.bot.tools.run("random_choice", {"items": options}, permission="ai_tools")
@@ -56,15 +56,6 @@ class Advanced(commands.Cog, name="Advanced"):
         try:
             result = await self.bot.tools.run("regex_test", {"pattern": pattern, "text": text}, permission="ai_tools")
             await interaction.followup.send(f"🔎 {result}")
-        except Exception as exc:
-            await interaction.followup.send(safe_user_message(exc), ephemeral=True)
-
-    @app_commands.command(name="weather", description="Get current public weather for a city.")
-    async def weather(self, interaction: discord.Interaction, city: str):
-        await interaction.response.defer()
-        try:
-            from rosy.cogs.features import Features
-            await Features(self.bot).weather(interaction, city)
         except Exception as exc:
             await interaction.followup.send(safe_user_message(exc), ephemeral=True)
 
